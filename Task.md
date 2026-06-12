@@ -9,20 +9,20 @@ A learning project to build a comprehensive, production-grade append-only key-va
 - **Graceful degradation**: All features check for their dependencies and provide clear error messages if missing
 - **Dev dependencies**: bats (testing), shellcheck (linting)
 
-## Phase 0 — Project Foundation (In Progress)
+## Phase 0 — Project Foundation (Complete)
 
 - [x] Create project structure (src/, tests/, benchmarks/, docs/)
 - [x] Create Makefile with standard targets
 - [x] Create README.md and Task.md
 - [x] Create AGENTS.md for project context
-- [ ] Set up .gitignore for build artifacts
-- [ ] Add Makefile targets: setup, test, lint, clean, benchmark
+- [x] Set up .gitignore for build artifacts
+- [x] Add Makefile targets: setup, test, lint, clean, benchmark
 
 ## Phase 1 — Data Integrity & Safety
 
-- [ ] Atomic writes (write to temp file, mv atomically)
-- [ ] File locking with `flock` for concurrent access
-- [ ] `fsync` after writes for durability
+- [x] Atomic writes (write to temp file, mv atomically)
+- [x] File locking with `flock` for concurrent access
+- [x] `fsync` after writes for durability
 - [ ] Checksum validation (SHA256 per record)
 - [ ] Write-ahead log (WAL) format for crash recovery
 - [ ] Validate record format on read (detect corruption)
@@ -98,8 +98,9 @@ A learning project to build a comprehensive, production-grade append-only key-va
 
 ## Current Status
 
-- **Phase 0**: In progress
-- **Completed**: Basic append-only log, tombstone deletion, timestamps, input validation, db_history, db_exists, db_list, db_stats
+- **Phase 0**: Complete
+- **Phase 1**: In progress
+- **Completed**: Basic append-only log, tombstone deletion, timestamps, input validation, db_history, db_exists, db_list, db_stats, .gitignore, Makefile targets
 - **Known Issues**: Needs atomic writes, file locking, and comprehensive tests
 
 ## Design Decisions
