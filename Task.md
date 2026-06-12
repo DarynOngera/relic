@@ -18,15 +18,15 @@ A learning project to build a comprehensive, production-grade append-only key-va
 - [x] Set up .gitignore for build artifacts
 - [x] Add Makefile targets: setup, test, lint, clean, benchmark
 
-## Phase 1 — Data Integrity & Safety
+## Phase 1 — Data Integrity & Safety (Complete)
 
 - [x] Atomic writes (write to temp file, mv atomically)
 - [x] File locking with `flock` for concurrent access
 - [x] `fsync` after writes for durability
-- [ ] Checksum validation (SHA256 per record)
-- [ ] Write-ahead log (WAL) format for crash recovery
-- [ ] Validate record format on read (detect corruption)
-- [ ] Handle SIGINT/SIGTERM gracefully during writes
+- [x] Checksum validation (SHA256 per record)
+- [x] Write-ahead log (WAL) format for crash recovery
+- [x] Validate record format on read (detect corruption)
+- [x] Handle SIGINT/SIGTERM gracefully during writes
 
 ## Phase 2 — Core Operations (Production API)
 
@@ -99,14 +99,16 @@ A learning project to build a comprehensive, production-grade append-only key-va
 ## Current Status
 
 - **Phase 0**: Complete
-- **Phase 1**: In progress
-- **Completed**: Basic append-only log, tombstone deletion, timestamps, input validation, db_history, db_exists, db_list, db_stats, .gitignore, Makefile targets
-- **Known Issues**: Needs atomic writes, file locking, and comprehensive tests
+- **Phase 1**: Complete
+- **Phase 2**: Not started
+- **Completed**: Basic append-only log, tombstone deletion, timestamps, input validation, db_history, db_exists, db_list, db_stats, .gitignore, Makefile targets, atomic writes, file locking, fsync, SHA256 checksums, WAL, record validation, signal handling, auto-migration, db_verify
+- **Known Issues**: None
 
 ## Design Decisions
 
-- **Format**: Quoted CSV (`key,"value",timestamp`) to support commas in values
-- **Storage**: Append-only log with tombstone deletion
+- **Format**: Quoted CSV with checksum (`key,"value",timestamp,sha256sum`) to support commas in values and detect corruption
+- **Storage**: Append-only log with tombstone deletion, WAL for immediate durability
 - **Concurrency**: File locking with `flock` (read-write locks)
 - **Transactions**: Copy-on-write snapshots via temp files
 - **Performance target**: 100+ ops/sec for simple workloads
+- **Migration**: Auto-migrate old format (3 fields) to new format (4 fields) on db_init

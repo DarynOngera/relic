@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 
 setup() {
-  rm -f db
+  rm -f db db.wal db.lock
   source "$BATS_TEST_DIRNAME/../src/db.sh"
   DB_FILE="$BATS_TEST_DIRNAME/../test_db.tmp"
   export db="$DB_FILE"
@@ -9,7 +9,7 @@ setup() {
 }
 
 teardown() {
-  rm -f "$DB_FILE" "$DB_FILE.lock" "db"
+  rm -f "$DB_FILE" "$DB_FILE.lock" "$DB_FILE.wal" "db" "db.wal" "db.lock"
 }
 
 @test "db_init uses custom db path" {
@@ -109,4 +109,73 @@ teardown() {
   fi
   run db_get "key"
   [ "$status" -eq 1 ]
+}
+
+@test "db_migrate converts old format to new" {
+  echo 'oldkey,"oldvalue",2026-06-12T00:00:00+00:00' > "$DB_FILE"
+  db_init
+  result=$(db_get "oldkey")
+  [ "$result" = "oldvalue" ]
+  # Verify new format has 4 fields
+  local first_line
+  first_line=$(head -n 1 "$DB_FILE")
+  local field_count
+  field_count=$(echo "$first_line" | awk -F',' '{print NF}')
+  [ "$field_count" -eq 4 ]
+}
+
+@test "db_verify reports clean database" {
+  db_set "key" "value"
+  run db_verify
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"clean"* ]]
+}
+
+@test "db_verify detects corrupted record" {
+  db_set "key" "value"
+  # Corrupt the checksum in the WAL file
+  echo 'key,"value",2026-06-12T00:00:00+00:00,INVALIDCHECKSUM' >> "$DB_FILE.wal"
+  run db_verify
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"checksum mismatch"* ]]
+}
+
+@test "db_sync flushes WAL to database" {
+  db_set "key" "value"
+  # Before sync, WAL should have data
+  [ -s "$DB_FILE.wal" ]
+  db_sync
+  # After sync, WAL should be empty and db should have data
+  [ ! -s "$DB_FILE.wal" ]
+  [ -s "$DB_FILE" ]
+  result=$(db_get "key")
+  [ "$result" = "value" ]
+}
+
+@test "db_get fails on checksum mismatch" {
+  db_set "key" "value"
+  db_sync
+  # Corrupt the checksum in the database file
+  sed -i 's/[^,]*$/INVALIDCHECKSUM/' "$DB_FILE"
+  run db_get "key"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"checksum mismatch"* ]]
+}
+
+@test "db_list fails on corrupted database" {
+  db_set "a" "1"
+  db_set "b" "2"
+  db_sync
+  # Corrupt the database
+  echo 'corrupted,"data",2026-06-12T00:00:00+00:00,INVALID' >> "$DB_FILE"
+  run db_list
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"checksum mismatch"* ]]
+}
+
+@test "db_stats includes WAL size" {
+  db_set "key" "value"
+  run db_stats
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"WAL size"* ]]
 }
