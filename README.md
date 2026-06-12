@@ -1,25 +1,37 @@
-# ddia
+# DDIA Key-Value Database
 
-A simple append-only key-value database implemented in Bash.
+Production-grade append-only key-value database implemented in pure Bash.
 
-## Setup
+## Dependencies
+
+- Bash 4.0+
+- `flock` (Linux file locking)
+- `sha256sum` (checksums, usually pre-installed)
+- `mktemp` (atomic temp files, usually pre-installed)
+- `jq` (optional, for JSON operations)
+- `openssl` (optional, for encryption)
+- `bats` (development only, for testing)
+
+## Quick Start
 
 ```bash
-source db.sh
+make setup          # Create directories
+source src/db.sh
+db_init
+db_set "name" "Daryn"
+db_get "name"
 ```
 
-## Usage
+## Makefile Targets
 
-```bash
-db_init                          # Create database file if missing
-db_set "key" "value"             # Store a value (supports commas in values)
-db_get "key"                     # Retrieve the latest value
-db_delete "key"                  # Mark a key as deleted (tombstone)
-db_exists "key"                  # Check if key exists (exit code 0/1)
-db_history "key"                 # Show all values with timestamps
-db_list                          # List all non-deleted keys
-db_stats                         # Show total records, unique keys, file size
-```
+| Target | Description |
+|--------|-------------|
+| `make setup` | Create project directories |
+| `make test` | Run all tests (requires bats) |
+| `make lint` | Run shellcheck on all .sh files |
+| `make clean` | Remove build artifacts and test data |
+| `make benchmark` | Run performance benchmarks |
+| `make install` | Install to /usr/local/bin (optional) |
 
 ## Format
 
@@ -31,6 +43,18 @@ key,"value",2026-06-12T02:56:00+00:00
 
 ## Design
 
-- Append-only log: no in-place updates
-- Tombstone deletion: soft deletes via `__deleted__` marker
-- Compaction can be added later to remove stale records
+- **Append-only log**: No in-place updates
+- **Tombstone deletion**: Soft deletes via `__deleted__` marker
+- **Compaction**: Can be added later to remove stale records
+
+## Project Structure
+
+```
+├── src/           # Core database engine
+├── tests/         # Test suites
+├── benchmarks/    # Performance tests
+├── docs/          # Documentation and ADRs
+├── Makefile
+├── README.md
+└── Task.md
+```
