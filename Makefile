@@ -15,7 +15,7 @@ test:
 lint:
 	@echo "Running shellcheck..."
 	if command -v shellcheck >/dev/null 2>&1; then \
-		shellcheck src/*.sh tests/*.bats; \
+		shellcheck -x src/*.sh tests/*.bats; \
 	else \
 		echo "Error: shellcheck is not installed. Install: apt-get install shellcheck" >&2; \
 		exit 1; \
@@ -36,5 +36,5 @@ benchmark:
 
 install:
 	@echo "Installing to /usr/local/bin..."
-	install -m 755 src/db.sh /usr/local/bin/db.sh
+	install -m 755 src/*.sh /usr/local/bin/
 	@echo "Done."

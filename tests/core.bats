@@ -2,6 +2,7 @@
 
 setup() {
   rm -f db db.wal db.lock
+  # shellcheck source=src/db.sh
   source "$BATS_TEST_DIRNAME/../src/db.sh"
   DB_FILE="$BATS_TEST_DIRNAME/../test_db.tmp"
   export db="$DB_FILE"
@@ -178,4 +179,114 @@ teardown() {
   run db_stats
   [ "$status" -eq 0 ]
   [[ "$output" == *"WAL size"* ]]
+}
+
+@test "all public functions are loaded from modules" {
+  run bash -c 'source "'"$BATS_TEST_DIRNAME"'/../src/db.sh"; declare -f db_init db_set db_get db_delete db_exists db_history db_list db_stats db_sync db_verify db_migrate db_mset db_mget db_incr db_decr db_update db_keys db_search db_clear db_count db_size >/dev/null'
+  [ "$status" -eq 0 ]
+}
+
+@test "db_mset stores multiple values atomically" {
+  db_mset "a" "1" "b" "2"
+  result_a=$(db_get "a")
+  result_b=$(db_get "b")
+  [ "$result_a" = "1" ]
+  [ "$result_b" = "2" ]
+}
+
+@test "db_mset fails with odd number of arguments" {
+  run db_mset "a" "1" "b"
+  [ "$status" -eq 1 ]
+}
+
+@test "db_mget returns key-value pairs separated by tabs" {
+  db_mset "a" "1" "b" "2"
+  result=$(db_mget "a" "b")
+  [[ "$result" == *"a	1"* ]]
+  [[ "$result" == *"b	2"* ]]
+}
+
+@test "db_mget omits missing keys" {
+  db_set "a" "1"
+  result=$(db_mget "a" "missing")
+  [[ "$result" == *"a"* ]]
+  [[ "$result" != *"missing"* ]]
+}
+
+@test "db_incr increments an integer value" {
+  db_set "counter" "5"
+  result=$(db_incr "counter")
+  [ "$result" -eq 6 ]
+}
+
+@test "db_incr fails when key does not exist" {
+  run db_incr "missing_counter"
+  [ "$status" -eq 1 ]
+}
+
+@test "db_incr fails when value is not an integer" {
+  db_set "counter" "not_a_number"
+  run db_incr "counter"
+  [ "$status" -eq 1 ]
+}
+
+@test "db_decr decrements an integer value" {
+  db_set "counter" "5"
+  result=$(db_decr "counter")
+  [ "$result" -eq 4 ]
+}
+
+@test "db_update changes value only when expected matches" {
+  db_set "key" "old"
+  db_update "key" "old" "new"
+  result=$(db_get "key")
+  [ "$result" = "new" ]
+}
+
+@test "db_update fails when current value does not match" {
+  db_set "key" "actual"
+  run db_update "key" "wrong" "new"
+  [ "$status" -eq 1 ]
+}
+
+@test "db_keys filters keys by glob pattern" {
+  db_mset "user:1" "a" "user:2" "b" "post:1" "c"
+  result=$(db_keys "user:*")
+  [[ "$result" == *"user:1"* ]]
+  [[ "$result" == *"user:2"* ]]
+  [[ "$result" != *"post:1"* ]]
+}
+
+@test "db_search returns keys whose values contain term" {
+  db_mset "a" "hello world" "b" "goodbye" "c" "hello again"
+  result=$(db_search "hello")
+  [[ "$result" == *"a"* ]]
+  [[ "$result" == *"c"* ]]
+  [[ "$result" != *"b"* ]]
+}
+
+@test "db_clear removes all active keys and writes audit marker" {
+  db_mset "a" "1" "b" "2"
+  db_clear
+  run db_get "a"
+  [ "$status" -eq 1 ]
+  run db_get "b"
+  [ "$status" -eq 1 ]
+  run db_count
+  [ "$output" -eq 0 ]
+  run grep '__cleared__' "$DB_FILE"
+  [ "$status" -eq 0 ]
+}
+
+@test "db_count returns number of active keys" {
+  db_mset "a" "1" "b" "2"
+  db_delete "a"
+  result=$(db_count)
+  [ "$result" -eq 1 ]
+}
+
+@test "db_size returns human-readable total size" {
+  db_set "key" "value"
+  result=$(db_size)
+  [[ "$result" =~ [0-9]+B ]]
 }

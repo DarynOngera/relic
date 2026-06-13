@@ -37,6 +37,16 @@ db_sync             # Flush WAL to main database
 | `db_history <key>` | Show all values for a key |
 | `db_list` | List all active keys |
 | `db_stats` | Show database statistics |
+| `db_mset <key1> <value1> [...]` | Batch set multiple key-value pairs |
+| `db_mget <key1> [...]` | Batch get values (output: `key<TAB>value`) |
+| `db_incr <key> [amount]` | Atomically increment an integer value |
+| `db_decr <key> [amount]` | Atomically decrement an integer value |
+| `db_update <key> <expected> <new>` | Update only if current value matches expected |
+| `db_keys <pattern>` | List active keys matching a shell glob |
+| `db_search <term>` | List active keys whose value contains term |
+| `db_clear` | Purge all data and write `__cleared__` marker |
+| `db_count` | Count active keys |
+| `db_size` | Human-readable total database size |
 
 ### Data Integrity & Maintenance
 
@@ -52,7 +62,7 @@ db_sync             # Flush WAL to main database
 |--------|-------------|
 | `make setup` | Create project directories |
 | `make test` | Run all tests (requires bats) |
-| `make lint` | Run shellcheck on all .sh files |
+| `make lint` | Run shellcheck on all .sh and .bats files |
 | `make clean` | Remove build artifacts and test data |
 | `make benchmark` | Run performance benchmarks |
 | `make install` | Install to /usr/local/bin (optional) |
@@ -79,10 +89,16 @@ key,"value",2026-06-12T02:56:00+00:00,abc123...
 ## Project Structure
 
 ```
-├── src/           # Core database engine
-├── tests/         # Test suites
-├── benchmarks/    # Performance tests
-├── docs/          # Documentation and ADRs
+├── src/
+│   ├── db.sh           # Public entry point (sources all modules)
+│   ├── db_utils.sh     # Checksums, validation, record helpers
+│   ├── db_lock.sh      # flock read/write helpers
+│   ├── db_storage.sh   # WAL append/sync and read helpers
+│   ├── db_ops.sh       # Core operations (set, get, delete, etc.)
+│   └── db_maint.sh     # Maintenance (init, sync, verify, stats, migrate)
+├── tests/              # Test suites
+├── benchmarks/         # Performance tests
+├── docs/               # Documentation and ADRs
 ├── Makefile
 ├── README.md
 └── Task.md

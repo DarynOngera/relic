@@ -26,18 +26,18 @@ A learning project to build a comprehensive, production-grade append-only key-va
 - [x] Checksum validation (SHA256 per record)
 - [x] Write-ahead log (WAL) format for crash recovery
 - [x] Validate record format on read (detect corruption)
-- [x] Handle SIGINT/SIGTERM gracefully during writes
+- [x] Handle SIGINT/SIGTERM gracefully during migration
 
-## Phase 2 — Core Operations (Production API)
+## Phase 2 — Core Operations (Production API) (Complete)
 
-- [ ] `db_mset` / `db_mget` — batch operations
-- [ ] `db_incr` / `db_decr` — atomic counter operations
-- [ ] `db_update` — conditional update (only if value matches)
-- [ ] `db_clear` — purge all data
-- [ ] `db_count` — active key count
-- [ ] `db_keys` — with prefix and pattern matching
-- [ ] `db_search` — full-text value search
-- [ ] `db_size` — human-readable file size
+- [x] `db_mset` / `db_mget` — batch operations
+- [x] `db_incr` / `db_decr` — atomic counter operations
+- [x] `db_update` — conditional update (only if value matches)
+- [x] `db_clear` — purge all data
+- [x] `db_count` — active key count
+- [x] `db_keys` — with prefix and pattern matching
+- [x] `db_search` — full-text value search
+- [x] `db_size` — human-readable file size
 
 ## Phase 3 — Compaction & Maintenance
 
@@ -68,7 +68,7 @@ A learning project to build a comprehensive, production-grade append-only key-va
 
 ## Phase 6 — Testing (Production-Grade)
 
-- [ ] Unit tests with `bats` (Bash Automated Testing System)
+- [x] Unit tests with `bats` (Bash Automated Testing System)
 - [ ] Integration tests for concurrency (parallel readers/writers)
 - [ ] Crash recovery tests (kill -9 mid-write)
 - [ ] Fuzz testing with random keys/values
@@ -100,8 +100,9 @@ A learning project to build a comprehensive, production-grade append-only key-va
 
 - **Phase 0**: Complete
 - **Phase 1**: Complete
-- **Phase 2**: Not started
-- **Completed**: Basic append-only log, tombstone deletion, timestamps, input validation, db_history, db_exists, db_list, db_stats, .gitignore, Makefile targets, atomic writes, file locking, fsync, SHA256 checksums, WAL, record validation, signal handling, auto-migration, db_verify
+- **Phase 2**: Complete
+- **Phase 3**: Not started
+- **Completed**: Basic append-only log, tombstone deletion, timestamps, input validation, db_history, db_exists, db_list, db_stats, .gitignore, Makefile targets, atomic writes, file locking, fsync, SHA256 checksums, WAL, record validation, signal handling during migration, auto-migration, db_verify, modular engine split into src/db_*.sh modules
 - **Known Issues**: None
 
 ## Design Decisions
