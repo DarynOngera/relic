@@ -55,6 +55,11 @@ db_sync             # Flush WAL to main database
 | `db_sync` | Flush WAL to main database |
 | `db_verify` | Scan database for corruption |
 | `db_migrate` | Manually migrate old format to new |
+| `db_compact` | Remove tombstones and overwritten records |
+| `db_vacuum` | Compact and verify the database |
+| `db_backup <dest>` | Hot backup to `<dest>` and `<dest>.wal` |
+| `db_restore <src>` | Restore from backup (refuses non-empty db) |
+| `db_truncate [max_bytes]` | Rotate db if larger than max (default 10 MB) |
 
 ## Makefile Targets
 
@@ -86,7 +91,10 @@ Keys starting with `__` (double underscore) are reserved for internal system rec
 - **Auto-migration**: Old format (3 fields) automatically upgraded to new format (4 fields)
 - **File locking**: `flock` for concurrent read/write access
 - **Signal handling**: SIGINT/SIGTERM cleanup during writes
-- **Compaction**: Can be added later to remove stale records
+- **Compaction**: `db_compact` removes tombstones and overwritten records; `db_vacuum` compacts and verifies
+- **Hot backup/restore**: `db_backup`/`db_restore` with validation
+- **Log rotation**: `db_truncate` rotates db segments when size exceeds threshold
+- **Schema versioning**: `__schema_version__` system key tracked automatically
 
 ## Project Structure
 

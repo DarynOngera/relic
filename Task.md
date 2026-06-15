@@ -39,14 +39,14 @@ A learning project to build a comprehensive, production-grade append-only key-va
 - [x] `db_search` — full-text value search
 - [x] `db_size` — human-readable file size
 
-## Phase 3 — Compaction & Maintenance
+## Phase 3 — Compaction & Maintenance (Complete)
 
-- [ ] `db_compact` — remove tombstones and overwrites
-- [ ] `db_vacuum` — compact + rebuild indexes
-- [ ] `db_backup` — hot backup (copy while holding read lock)
-- [ ] `db_restore` — restore from backup with validation
-- [ ] `db_truncate` — size-limited log rotation
-- [ ] `db_migrate` — schema version migration
+- [x] `db_compact` — remove tombstones and overwrites
+- [x] `db_vacuum` — compact + rebuild indexes
+- [x] `db_backup` — hot backup (copy while holding read lock)
+- [x] `db_restore` — restore from backup with validation
+- [x] `db_truncate` — size-limited log rotation
+- [x] `db_migrate` — schema version migration
 
 ## Phase 4 — Transactions (Basic ACID)
 
@@ -101,8 +101,9 @@ A learning project to build a comprehensive, production-grade append-only key-va
 - **Phase 0**: Complete
 - **Phase 1**: Complete
 - **Phase 2**: Complete
-- **Phase 3**: Not started
-- **Completed**: Basic append-only log, tombstone deletion, timestamps, input validation, db_history, db_exists, db_list, db_stats, .gitignore, Makefile targets, atomic writes, file locking, fsync, SHA256 checksums, WAL, record validation, signal handling during migration, auto-migration, db_verify, modular engine split into src/db_*.sh modules
+- **Phase 3**: Complete
+- **Phase 4**: Not started
+- **Completed**: Basic append-only log, tombstone deletion, timestamps, input validation, db_history, db_exists, db_list, db_stats, .gitignore, Makefile targets, atomic writes, file locking, fsync, SHA256 checksums, WAL, record validation, signal handling during migration, auto-migration, db_verify, modular engine split into src/db_*.sh modules, Phase 2 operations (batch, counters, conditional, search), Phase 3 maintenance (compact, vacuum, backup, restore, truncate, schema versioning)
 - **Known Issues**: None
 
 ## Design Decisions

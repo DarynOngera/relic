@@ -10,7 +10,7 @@ setup() {
 }
 
 teardown() {
-  rm -f "$DB_FILE" "$DB_FILE.lock" "$DB_FILE.wal" "db" "db.wal" "db.lock"
+  rm -f "$DB_FILE" "$DB_FILE.lock" "$DB_FILE.wal" "db" "db.wal" "db.lock" "$DB_FILE."* "$DB_FILE.backup" "$DB_FILE.backup.wal"
 }
 
 @test "db_init uses custom db path" {
@@ -182,8 +182,113 @@ teardown() {
 }
 
 @test "all public functions are loaded from modules" {
-  run bash -c 'source "'"$BATS_TEST_DIRNAME"'/../src/db.sh"; declare -f db_init db_set db_get db_delete db_exists db_history db_list db_stats db_sync db_verify db_migrate db_mset db_mget db_incr db_decr db_update db_keys db_search db_clear db_count db_size >/dev/null'
+  run bash -c 'source "'"$BATS_TEST_DIRNAME"'/../src/db.sh"; declare -f db_init db_set db_get db_delete db_exists db_history db_list db_stats db_sync db_verify db_migrate db_mset db_mget db_incr db_decr db_update db_keys db_search db_clear db_count db_size db_compact db_vacuum db_backup db_restore db_truncate >/dev/null'
   [ "$status" -eq 0 ]
+}
+
+@test "db_init sets schema version" {
+  db_init
+  run grep '__schema_version__' "$DB_FILE"
+  [ "$status" -eq 0 ]
+}
+
+@test "db_compact removes tombstones and overwrites" {
+  db_set "a" "1"
+  db_set "a" "2"
+  db_set "a" "3"
+  db_delete "b"
+  db_set "b" "value"
+  db_compact
+  [ "$(grep -c '^a,"' "$DB_FILE")" -eq 1 ]
+  result=$(db_get "a")
+  [ "$result" = "3" ]
+  result=$(db_get "b")
+  [ "$result" = "value" ]
+}
+
+@test "db_compact preserves system markers" {
+  db_set "a" "1"
+  db_clear
+  db_compact
+  run grep '__cleared__' "$DB_FILE"
+  [ "$status" -eq 0 ]
+}
+
+@test "db_vacuum compacts and verifies" {
+  db_set "a" "1"
+  db_set "a" "2"
+  db_vacuum
+  run db_verify
+  [ "$status" -eq 0 ]
+  result=$(db_get "a")
+  [ "$result" = "2" ]
+}
+
+@test "db_backup copies db and wal" {
+  db_set "a" "1"
+  db_sync
+  db_set "b" "2"
+  db_backup "${DB_FILE}.backup"
+  [ -f "${DB_FILE}.backup" ]
+  [ -f "${DB_FILE}.backup.wal" ]
+  run grep 'a,"1"' "${DB_FILE}.backup"
+  [ "$status" -eq 0 ]
+  run grep 'b,"2"' "${DB_FILE}.backup.wal"
+  [ "$status" -eq 0 ]
+}
+
+@test "db_restore refuses non-empty database" {
+  db_set "a" "1"
+  db_backup "${DB_FILE}.backup"
+  db_set "b" "2"
+  run db_restore "${DB_FILE}.backup"
+  [ "$status" -eq 1 ]
+}
+
+@test "db_restore succeeds on empty database" {
+  db_set "a" "1"
+  db_backup "${DB_FILE}.backup"
+  rm -f "$DB_FILE" "$DB_FILE.wal" "$DB_FILE.lock"
+  touch "$DB_FILE" "$DB_FILE.wal"
+  db_restore "${DB_FILE}.backup"
+  result=$(db_get "a")
+  [ "$result" = "1" ]
+}
+
+@test "db_restore rejects corrupted backup" {
+  echo 'corrupted,"data",2026-06-15T00:00:00+00:00,INVALID' > "${DB_FILE}.backup"
+  rm -f "$DB_FILE" "$DB_FILE.wal" "$DB_FILE.lock"
+  db_init
+  run db_restore "${DB_FILE}.backup"
+  [ "$status" -eq 1 ]
+}
+
+@test "db_truncate rotates when size exceeded" {
+  db_set "key" "value"
+  db_sync
+  # Force small max size to trigger rotation
+  db_truncate 1
+  [ -f "${DB_FILE}.1" ]
+  [ ! -s "$DB_FILE" ]
+}
+
+@test "db_truncate keeps at most three rotated segments" {
+  db_set "key" "value"
+  db_sync
+  db_truncate 1
+  db_set "key" "value2"
+  db_sync
+  db_truncate 1
+  db_set "key" "value3"
+  db_sync
+  db_truncate 1
+  db_set "key" "value4"
+  db_sync
+  db_truncate 1
+  [ -f "${DB_FILE}.1" ]
+  [ -f "${DB_FILE}.2" ]
+  [ -f "${DB_FILE}.3" ]
+  [ ! -f "${DB_FILE}.4" ]
 }
 
 @test "db_mset stores multiple values atomically" {
