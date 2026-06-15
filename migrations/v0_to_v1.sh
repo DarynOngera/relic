@@ -17,18 +17,18 @@ migrate() {
     line_num=$((line_num + 1))
     [ -z "$line" ] && continue
 
-    local field_count
-    field_count=$(echo "$line" | awk -F',' '{print NF}')
-    if [ "$field_count" -eq 4 ]; then
+    local record3_re='^[^,]+,"[^"]*",[^,]+$'
+    local record4_re='^[^,]+,"[^"]*",[^,]+,[^,]+$'
+    if [[ "$line" =~ $record4_re ]]; then
       echo "$line" >> "$tmp"
       migrated=$((migrated + 1))
-    elif [ "$field_count" -eq 3 ]; then
+    elif [[ "$line" =~ $record3_re ]]; then
       local checksum
       checksum=$(printf '%s' "$line" | sha256sum | cut -d' ' -f1)
       echo "$line,$checksum" >> "$tmp"
       migrated=$((migrated + 1))
     else
-      echo "Error: v0_to_v1 line $line_num: invalid format (expected 3 or 4 fields, got $field_count)" >&2
+      echo "Error: v0_to_v1 line $line_num: invalid format (expected 3 or 4 CSV fields)" >&2
       rm -f "$tmp"
       trap - INT TERM
       return 1

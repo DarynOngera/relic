@@ -158,22 +158,46 @@ db_get_enc() {
   else
     (
       _db_lock_shared
+      local lines=()
       while IFS= read -r line; do
         [ -z "$line" ] && continue
-        _db_is_encrypted_record "$line" || continue
-
-        payload="${line%,*}"
-        ciphertext=$(_db_extract_value "$payload")
-        plaintext=$(_db_decrypt_record "$ciphertext") || continue
-
-        inner_key="${plaintext%%,*}"
-        if [ "$inner_key" = "$key" ]; then
-          inner_value="${plaintext#*,\"}"
-          inner_value="${inner_value%\",*}"
-          echo "$inner_value"
-          return 0
-        fi
+        lines+=("$line")
       done < <(_db_read_all_lines_for_query)
+
+      local i
+      for ((i = ${#lines[@]} - 1; i >= 0; i--)); do
+        line="${lines[$i]}"
+
+        if _db_is_encrypted_record "$line"; then
+          payload="${line%,*}"
+          ciphertext=$(_db_extract_value "$payload")
+          plaintext=$(_db_decrypt_record "$ciphertext") || continue
+
+          inner_key="${plaintext%%,*}"
+          if [ "$inner_key" = "$key" ]; then
+            inner_value="${plaintext#*,\"}"
+            inner_value="${inner_value%\",*}"
+            echo "$inner_value"
+            return 0
+          fi
+        else
+          payload="${line%,*}"
+          checksum="${line##*,}"
+          if [ "$(_db_checksum "$payload")" != "$checksum" ]; then
+            continue
+          fi
+
+          plain_key="${payload%%,*}"
+          if [ "$plain_key" = "$key" ]; then
+            plain_value=$(_db_extract_value "$payload")
+            if [ "$plain_value" = "__deleted__" ]; then
+              return 1
+            fi
+            echo "$plain_value"
+            return 0
+          fi
+        fi
+      done
       return 1
     ) 200>"${db}.lock"
   fi

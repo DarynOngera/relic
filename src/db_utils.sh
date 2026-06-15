@@ -60,7 +60,7 @@ _db_extract_value() {
 
 _db_extract_timestamp() {
   local payload="$1"
-  echo "${payload##*,}"
+  echo "${payload##*\",}"
 }
 
 _db_is_system_key() {

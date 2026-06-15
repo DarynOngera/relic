@@ -49,6 +49,15 @@ teardown() {
   [ "$result" -eq 2 ]
 }
 
+@test "db_history handles values containing commas" {
+  db_set "key3" "a,b"
+  db_set "key3" "c,d"
+  result=$(db_history "key3" | wc -l)
+  [ "$result" -eq 2 ]
+  result=$(db_history "key3" | head -n 1)
+  [[ "$result" == *"a,b"* ]]
+}
+
 @test "db_exists returns 0 for existing key" {
   db_set "key4" "value"
   run db_exists "key4"
@@ -476,6 +485,17 @@ teardown() {
   [ "$status" -eq 0 ]
 }
 
+@test "db_clear preserves __schema_version__" {
+  local version
+  version=$(_db_get_schema_version)
+  db_mset "a" "1" "b" "2"
+  db_sync
+  db_clear
+  local after
+  after=$(_db_get_schema_version)
+  [ "$after" = "$version" ]
+}
+
 @test "db_count returns number of active keys" {
   db_mset "a" "1" "b" "2"
   db_delete "a"
@@ -571,6 +591,14 @@ teardown() {
   [ "$status" -eq 0 ]
   [ ! -f "$DB_FILE.tx.wal" ]
   [ ! -f "$DB_FILE.tx.snapshot" ]
+}
+
+@test "db_begin snapshot includes unsynced WAL writes" {
+  db_set "pre_tx_key" "pre_tx_value"
+  db_begin
+  result=$(db_get "pre_tx_key")
+  [ "$result" = "pre_tx_value" ]
+  db_rollback
 }
 
 @test "db_set_json stores and db_get_json retrieves JSON" {
@@ -710,6 +738,29 @@ teardown() {
   [ "$status" -eq 1 ]
 }
 
+@test "db_get_enc whole-record returns latest value" {
+  if ! command -v openssl >/dev/null 2>&1; then
+    skip "openssl unavailable"
+  fi
+  DB_ENCRYPTION_KEY="testkey" db_set_enc "enc_key" "first"
+  DB_ENCRYPTION_KEY="testkey" db_set_enc "enc_key" "second"
+  result=$(DB_ENCRYPTION_KEY="testkey" db_get_enc "enc_key")
+  [ "$result" = "second" ]
+}
+
+@test "db_get_enc whole-record respects db_delete" {
+  if ! command -v openssl >/dev/null 2>&1; then
+    skip "openssl unavailable"
+  fi
+  DB_ENCRYPTION_KEY="testkey" db_set_enc "enc_key" "secret"
+  db_delete "enc_key"
+  _get_enc_deleted() {
+    DB_ENCRYPTION_KEY="testkey" db_get_enc "enc_key"
+  }
+  run _get_enc_deleted
+  [ "$status" -eq 1 ]
+}
+
 @test "db_trigger fires on set and delete" {
   _my_trigger() {
     echo "trigger:$1:$2:$3"
@@ -744,6 +795,25 @@ teardown() {
 @test "db_trigger rejects unknown action" {
   run db_trigger invalid
   [ "$status" -eq 1 ]
+}
+
+@test "db_trigger calling db_get does not deadlock" {
+  _recursive_trigger() {
+    db_get "$2" >/dev/null 2>&1 || true
+  }
+  export -f _recursive_trigger
+  db_trigger set _recursive_trigger
+
+  local helper
+  helper=$(mktemp "${DB_FILE}.trigger_helper.XXXXXX")
+  cat > "$helper" <<EOF
+source "$BATS_TEST_DIRNAME/../src/db.sh"
+db="$DB_FILE"
+db_set "trig_key" "value1"
+EOF
+  run timeout 5 bash "$helper"
+  rm -f "$helper"
+  [ "$status" -eq 0 ]
 }
 
 @test "DB_REPLICA appends records to replica WAL" {

@@ -44,7 +44,7 @@ db_sync             # Flush WAL to main database
 | `db_update <key> <expected> <new>` | Update only if current value matches expected |
 | `db_keys <pattern>` | List active keys matching a shell glob |
 | `db_search <term>` | List active keys whose value contains term |
-| `db_clear` | Purge all data and write `__cleared__` marker |
+| `db_clear` | Purge all data and write a `__system__` marker with value `__cleared__` |
 | `db_count` | Count active keys |
 | `db_size` | Human-readable total database size |
 | `db_set_json <key> <json>` | Store a JSON value (Base64-encoded; validated by `jq` if available) |
@@ -110,7 +110,7 @@ Keys starting with `__` (double underscore) are reserved for internal system rec
 - **Signal handling**: SIGINT/SIGTERM cleanup during writes
 - **Compaction**: `db_compact` removes tombstones and overwritten records; `db_vacuum` compacts and verifies
 - **Hot backup/restore**: `db_backup`/`db_restore` with validation
-- **Log rotation**: `db_truncate` rotates db segments when size exceeds threshold
+- **Log rotation**: `db_truncate` rotates db segments when size exceeds threshold; reads with rotated segments spawn one scan per segment
 - **Schema versioning**: `__schema_version__` system key tracked automatically
 - **Logging**: `DB_LOG_LEVEL` and `DB_LOG_FILE` for debug/info/warn/error output
 - **Benchmarks**: `make benchmark` with human or JSON output, latency percentiles, and memory tracking

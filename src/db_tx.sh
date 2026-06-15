@@ -85,8 +85,8 @@ db_begin() {
     snapshot=$(_db_tx_snapshot)
     wal=$(_db_tx_wal)
 
-    if [ -f "$db" ]; then
-      cp "$db" "$snapshot"
+    if [ -f "$db" ] || [ -f "$db.wal" ]; then
+      cat "$db" "$db.wal" > "$snapshot" 2>/dev/null
     else
       : > "$snapshot"
     fi

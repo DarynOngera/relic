@@ -52,7 +52,7 @@ db_replica_sync() {
         sync "$DB_REPLICA" 2>/dev/null || true
       fi
     fi
-  ) 200>"${db}.lock"
+  ) 200>"${DB_REPLICA}.lock"
 
   return 0
 }

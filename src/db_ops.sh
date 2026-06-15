@@ -16,8 +16,8 @@ db_set() {
   (
     _db_lock_exclusive
     _db_write_record "$record"
-    _db_fire_trigger_if_user_key "set" "$1" "$2"
   ) 200>"${db}.lock"
+  _db_fire_trigger_if_user_key "set" "$1" "$2"
 
   return 0
 }
@@ -32,8 +32,8 @@ db_delete() {
   (
     _db_lock_exclusive
     _db_write_record "$record"
-    _db_fire_trigger_if_user_key "delete" "$1" "__deleted__"
   ) 200>"${db}.lock"
+  _db_fire_trigger_if_user_key "delete" "$1" "__deleted__"
 
   return 0
 }
@@ -206,12 +206,14 @@ db_mset() {
   fi
   _db_check_flock || return 1
 
-  local records=()
+  local records=() keys=() values=()
   while [ $# -gt 0 ]; do
     _db_validate_key_value "$1" "$2" || return 1
     local record
     record=$(_db_format_record "$1" "$2")
     records+=("$record")
+    keys+=("$1")
+    values+=("$2")
     shift 2
   done
 
@@ -224,18 +226,14 @@ db_mset() {
         printf '%s\n' "${records[@]:i:batch_size}" >> "$db.wal"
         i=$((i + batch_size))
       done
-      local k=0
-      while [ $k -lt ${#records[@]} ]; do
-        local rec="${records[$k]}"
-        local rec_key="${rec%%,*}"
-        local rec_payload="${rec%,*}"
-        local rec_value
-        rec_value=$(_db_extract_value "$rec_payload")
-        _db_fire_trigger_if_user_key "set" "$rec_key" "$rec_value"
-        k=$((k + 1))
-      done
     fi
   ) 200>"${db}.lock"
+
+  local k=0
+  while [ $k -lt ${#keys[@]} ]; do
+    _db_fire_trigger_if_user_key "set" "${keys[$k]}" "${values[$k]}"
+    k=$((k + 1))
+  done
 
   return 0
 }
@@ -314,7 +312,6 @@ _db_adjust_counter_body() {
   new_value=$(( value + delta ))
   record=$(_db_format_record "$key" "$new_value")
   _db_write_record "$record"
-  _db_fire_trigger_if_user_key "set" "$key" "$new_value"
   echo "$new_value"
 }
 
@@ -345,7 +342,14 @@ db_incr() {
     fi
   fi
 
-  _db_adjust_counter "$1" "$amount"
+  local result status
+  result=$(_db_adjust_counter "$1" "$amount")
+  status=$?
+  if [ "$status" -eq 0 ]; then
+    _db_fire_trigger_if_user_key "set" "$1" "$result"
+  fi
+  echo "$result"
+  return "$status"
 }
 
 db_decr() {
@@ -361,7 +365,14 @@ db_decr() {
     fi
   fi
 
-  _db_adjust_counter "$1" "-$amount"
+  local result status
+  result=$(_db_adjust_counter "$1" "-$amount")
+  status=$?
+  if [ "$status" -eq 0 ]; then
+    _db_fire_trigger_if_user_key "set" "$1" "$result"
+  fi
+  echo "$result"
+  return "$status"
 }
 
 db_update() {
@@ -382,15 +393,22 @@ db_update() {
 
   local key="$1" expected="$2" new_value="$3"
 
+  local status=0
   if _db_tx_active; then
     _db_update_body "$key" "$expected" "$new_value"
-    return 0
+    status=$?
+  else
+    (
+      _db_lock_exclusive
+      _db_update_body "$key" "$expected" "$new_value"
+    ) 200>"${db}.lock"
+    status=$?
   fi
 
-  (
-    _db_lock_exclusive
-    _db_update_body "$key" "$expected" "$new_value"
-  ) 200>"${db}.lock"
+  if [ "$status" -eq 0 ]; then
+    _db_fire_trigger_if_user_key "set" "$key" "$new_value"
+  fi
+  return "$status"
 }
 
 _db_update_body() {
@@ -430,7 +448,6 @@ _db_update_body() {
   local record
   record=$(_db_format_record "$key" "$new_value")
   _db_write_record "$record"
-  _db_fire_trigger_if_user_key "set" "$key" "$new_value"
   return 0
 }
 

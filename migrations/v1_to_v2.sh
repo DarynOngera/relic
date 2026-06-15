@@ -18,10 +18,9 @@ migrate() {
     line_num=$((line_num + 1))
     [ -z "$line" ] && continue
 
-    local field_count
-    field_count=$(echo "$line" | awk -F',' '{print NF}')
-    if [ "$field_count" -ne 4 ]; then
-      echo "Error: migration v1_to_v2: line $line_num: expected 4 fields, got $field_count" >&2
+    local record_re='^[^,]+,"[^"]*",[^,]+,[^,]+$'
+    if [[ ! "$line" =~ $record_re ]]; then
+      echo "Error: migration v1_to_v2: line $line_num: expected 4 CSV fields" >&2
       rm -f "$tmp"
       trap - INT TERM
       return 1
@@ -42,8 +41,8 @@ migrate() {
 
     if [[ "$key" != __* ]]; then
       local value timestamp new_value new_payload new_checksum
-      value=$(echo "$payload" | sed 's/^[^,]*,"//' | sed 's/",[^,]*$//')
-      timestamp="${payload##*,}"
+      value=$(_db_extract_value "$payload")
+      timestamp="${payload##*\",}"
       new_value="v2:$value"
       new_payload="$key,\"$new_value\",$timestamp"
       new_checksum=$(printf '%s' "$new_payload" | sha256sum | cut -d' ' -f1)

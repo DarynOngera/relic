@@ -54,9 +54,8 @@ db_init() {
     local first_line
     first_line=$(grep -v '^$' "$db" | head -n 1)
     if [ -n "$first_line" ]; then
-      local field_count
-      field_count=$(echo "$first_line" | awk -F',' '{print NF}')
-      if [ "$field_count" -eq 3 ]; then
+      local record_re='^[^,]+,"[^"]*",[^,]+$'
+      if [[ "$first_line" =~ $record_re ]]; then
         echo "Migrating database to new format..." >&2
         db_migrate
       fi
@@ -302,11 +301,15 @@ db_clear() {
 
   (
     _db_lock_exclusive
+    local version
+    version=$(_db_get_schema_version)
     : > "$db"
     : > "$db.wal"
-    local record
-    record=$(_db_format_record "__system__" "__cleared__")
+    local record cleared
+    record=$(_db_format_record "__schema_version__" "$version")
     echo "$record" >> "$db"
+    cleared=$(_db_format_record "__system__" "__cleared__")
+    echo "$cleared" >> "$db"
   ) 200>"${db}.lock"
 
   return 0
@@ -355,7 +358,7 @@ db_count() {
       [ -z "$key" ] && continue
       _db_is_system_key "$key" && continue
       local line payload value
-      line=$(_db_read_key_lines "$key" | tail -n 1)
+      line=$(_db_read_key_lines_for_query "$key" | tail -n 1)
       payload="${line%,*}"
       value=$(_db_extract_value "$payload")
       if [ "$value" != "__deleted__" ] && ! _db_is_expired "$key"; then
@@ -578,20 +581,33 @@ db_restore() {
       return 1
     fi
 
-    if ! cp "$src_file" "$db.gz.tmp" 2>/dev/null; then
+    local tmp_file
+    tmp_file=$(mktemp -p "$(dirname "$db")" "$(basename "$db").restore.XXXXXX")
+    trap 'rm -f "$tmp_file"' EXIT
+
+    if ! cp "$src_file" "$tmp_file" 2>/dev/null; then
       echo "Error: failed to restore database" >&2
+      rm -f "$tmp_file"
+      trap - EXIT
       return 1
     fi
     if [[ "$src_file" == *.gz ]]; then
-      if ! gzip -dc "$db.gz.tmp" > "$db"; then
-        rm -f "$db.gz.tmp"
+      if ! gzip -dc "$tmp_file" > "$db"; then
         echo "Error: failed to decompress database" >&2
+        rm -f "$tmp_file" "$db"
+        trap - EXIT
         return 1
       fi
-      rm -f "$db.gz.tmp"
+      rm -f "$tmp_file"
     else
-      mv "$db.gz.tmp" "$db"
+      if ! mv "$tmp_file" "$db"; then
+        echo "Error: failed to restore database" >&2
+        rm -f "$tmp_file"
+        trap - EXIT
+        return 1
+      fi
     fi
+    trap - EXIT
 
     local wal_src="$src.wal"
     if [ -f "$src.wal.gz" ]; then

@@ -67,8 +67,10 @@ db_set_ttl() {
   now=$(date +%s)
   expiry=$((now + ttl))
 
+  db_begin
   db_set "$key" "$value"
   db_set "$(_db_ttl_key "$key")" "$expiry"
+  db_commit
 }
 
 db_expire() {
