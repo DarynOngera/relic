@@ -95,6 +95,33 @@ Keys starting with `__` (double underscore) are reserved for internal system rec
 - **Hot backup/restore**: `db_backup`/`db_restore` with validation
 - **Log rotation**: `db_truncate` rotates db segments when size exceeds threshold
 - **Schema versioning**: `__schema_version__` system key tracked automatically
+- **Logging**: `DB_LOG_LEVEL` and `DB_LOG_FILE` for debug/info/warn/error output
+- **Benchmarks**: `make benchmark` with human or JSON output, latency percentiles, and memory tracking
+
+## Benchmarks
+
+```bash
+make benchmark                            # human-readable output
+BENCHMARK_OUTPUT=json make benchmark      # JSON output
+BENCHMARK_COUNT=10000 make benchmark      # larger workload
+BENCHMARK_WORKERS=10 make benchmark       # more concurrency
+```
+
+Reported metrics include throughput (ops/sec), min/p50/p95/p99/max latency in milliseconds, and peak memory usage.
+
+## Profiling
+
+Use `/usr/bin/time` for a high-level profile:
+
+```bash
+/usr/bin/time -v bash benchmarks/run.sh
+```
+
+Use `strace` to analyze syscalls (significantly slower):
+
+```bash
+strace -c -e trace=file,desc bash benchmarks/run.sh
+```
 
 ## Project Structure
 

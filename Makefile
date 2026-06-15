@@ -15,7 +15,7 @@ test:
 lint:
 	@echo "Running shellcheck..."
 	if command -v shellcheck >/dev/null 2>&1; then \
-		shellcheck -x src/*.sh tests/*.bats; \
+		shellcheck -x src/*.sh tests/*.bats benchmarks/*.sh; \
 	else \
 		echo "Error: shellcheck is not installed. Install: apt-get install shellcheck" >&2; \
 		exit 1; \
@@ -23,7 +23,8 @@ lint:
 
 clean:
 	@echo "Cleaning artifacts..."
-	rm -f db db.tmp *.tmp
+	rm -f db db.tmp *.tmp db.lock db.wal
+	rm -f benchmarks/db.bench benchmarks/db.bench.*
 	@echo "Done."
 
 benchmark:

@@ -80,3 +80,53 @@ _db_human_readable_size() {
     echo "${bytes}B"
   fi
 }
+
+_db_log_level_value() {
+  local level="$1"
+  case "$level" in
+    debug) echo 0 ;;
+    info)  echo 1 ;;
+    warn)  echo 2 ;;
+    error) echo 3 ;;
+    *)     echo 2 ;;
+  esac
+}
+
+_db_log() {
+  local level="$1" message="$2"
+  local configured_level
+  configured_level=${DB_LOG_LEVEL:-warn}
+
+  local level_value configured_value
+  level_value=$(_db_log_level_value "$level")
+  configured_value=$(_db_log_level_value "$configured_level")
+
+  if [ "$level_value" -lt "$configured_value" ]; then
+    return 0
+  fi
+
+  local timestamp
+  timestamp=$(_db_timestamp)
+  local formatted="[$timestamp] [$level] $message"
+
+  echo "$formatted" >&2
+
+  if [ -n "${DB_LOG_FILE:-}" ]; then
+    echo "$formatted" >> "$DB_LOG_FILE"
+  fi
+}
+
+db_log_debug() { _db_log "debug" "$1"; }
+db_log_info()  { _db_log "info"  "$1"; }
+db_log_warn()  { _db_log "warn"  "$1"; }
+db_log_error() { _db_log "error" "$1"; }
+
+_db_memory_usage_kb() {
+  if [ -f /proc/self/status ]; then
+    awk '/VmRSS/{print $2}' /proc/self/status
+  elif command -v ps >/dev/null 2>&1; then
+    ps -o rss= -p "$$" 2>/dev/null
+  else
+    echo "0"
+  fi
+}

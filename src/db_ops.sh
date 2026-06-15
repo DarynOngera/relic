@@ -209,7 +209,12 @@ db_mset() {
   (
     _db_lock_exclusive
     if [ ${#records[@]} -gt 0 ]; then
-      printf '%s\n' "${records[@]}" >> "$db.wal"
+      local batch_size="${DB_BATCH_SIZE:-100}"
+      local i=0
+      while [ $i -lt ${#records[@]} ]; do
+        printf '%s\n' "${records[@]:i:batch_size}" >> "$db.wal"
+        i=$((i + batch_size))
+      done
     fi
   ) 200>"${db}.lock"
 
