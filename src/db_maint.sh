@@ -45,6 +45,11 @@ db_init() {
     touch "$db.wal"
   fi
 
+  if [ -f "${db}.tx.wal" ] || [ -f "${db}.tx.snapshot" ]; then
+    db_log_warn "Found leftover transaction files; rolling back incomplete transaction"
+    rm -f "${db}.tx.wal" "${db}.tx.snapshot"
+  fi
+
   if [ -f "$db" ] && [ -s "$db" ]; then
     local first_line
     first_line=$(grep -v '^$' "$db" | head -n 1)
@@ -67,6 +72,7 @@ db_init() {
 }
 
 db_migrate() {
+  _db_tx_ensure_inactive || return 1
   _db_check_flock || return 1
 
   if [ ! -f "$db" ]; then
@@ -121,6 +127,7 @@ db_migrate() {
 }
 
 db_sync() {
+  _db_tx_ensure_inactive || return 1
   _db_check_flock || return 1
 
   (
@@ -132,6 +139,7 @@ db_sync() {
 }
 
 db_verify() {
+  _db_tx_ensure_inactive || return 1
   _db_check_flock || return 1
 
   (
@@ -198,6 +206,7 @@ db_verify() {
 }
 
 db_stats() {
+  _db_tx_ensure_inactive || return 1
   _db_check_flock || return 1
 
   (
@@ -249,6 +258,7 @@ db_stats() {
 }
 
 db_clear() {
+  _db_tx_ensure_inactive || return 1
   _db_check_flock || return 1
 
   (
@@ -264,6 +274,7 @@ db_clear() {
 }
 
 db_count() {
+  _db_tx_ensure_inactive || return 1
   _db_check_flock || return 1
 
   (
@@ -319,6 +330,7 @@ db_count() {
 }
 
 db_size() {
+  _db_tx_ensure_inactive || return 1
   _db_check_flock || return 1
 
   (
@@ -337,6 +349,7 @@ db_size() {
 }
 
 db_compact() {
+  _db_tx_ensure_inactive || return 1
   _db_check_flock || return 1
 
   if [ ! -f "$db" ] && [ ! -f "$db.wal" ]; then
@@ -402,6 +415,7 @@ db_compact() {
 }
 
 db_vacuum() {
+  _db_tx_ensure_inactive || return 1
   db_compact || return 1
   db_verify || return 1
   return 0
@@ -412,6 +426,7 @@ db_backup() {
     echo "Error: db_backup requires a destination path" >&2
     return 1
   fi
+  _db_tx_ensure_inactive || return 1
   _db_check_flock || return 1
 
   local dest="$1"
@@ -445,6 +460,7 @@ db_restore() {
     echo "Error: db_restore requires a source path" >&2
     return 1
   fi
+  _db_tx_ensure_inactive || return 1
   _db_check_flock || return 1
 
   local src="$1"
@@ -508,6 +524,7 @@ db_restore() {
 }
 
 db_truncate() {
+  _db_tx_ensure_inactive || return 1
   _db_check_flock || return 1
 
   local max_bytes="${1:-10485760}"

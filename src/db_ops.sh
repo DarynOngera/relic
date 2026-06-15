@@ -2,6 +2,7 @@
 # shellcheck source=src/db_utils.sh
 # shellcheck source=src/db_lock.sh
 # shellcheck source=src/db_storage.sh
+# shellcheck source=src/db_tx.sh
 
 db=${db:-}
 
@@ -14,7 +15,7 @@ db_set() {
 
   (
     _db_lock_exclusive
-    _db_append_wal "$record"
+    _db_write_record "$record"
   ) 200>"${db}.lock"
 
   return 0
@@ -29,7 +30,7 @@ db_delete() {
 
   (
     _db_lock_exclusive
-    _db_append_wal "$record"
+    _db_write_record "$record"
   ) 200>"${db}.lock"
 
   return 0
@@ -46,7 +47,7 @@ db_get() {
     fi
 
     local line payload checksum computed value
-    line=$(_db_read_key_lines "$1" | tail -n 1)
+    line=$(_db_read_key_lines_for_query "$1" | tail -n 1)
 
     if [ -z "$line" ]; then
       return 1
@@ -99,7 +100,7 @@ db_history() {
       else
         echo "$value @ $timestamp"
       fi
-    done < <(_db_read_key_lines "$1")
+    done < <(_db_read_key_lines_for_query "$1")
 
     return "$has_error"
   ) 200>"${db}.lock"
@@ -116,7 +117,7 @@ db_exists() {
     fi
 
     local line payload checksum computed value
-    line=$(_db_read_key_lines "$1" | tail -n 1)
+    line=$(_db_read_key_lines_for_query "$1" | tail -n 1)
 
     if [ -z "$line" ]; then
       return 1
@@ -168,7 +169,7 @@ db_list() {
       _db_is_system_key "$key" && continue
       seen[$key]=1
 
-    done < <(_db_read_all_lines)
+    done < <(_db_read_all_lines_for_query)
 
     if [ "$has_error" -eq 1 ]; then
       return 1
@@ -178,7 +179,7 @@ db_list() {
       [ -z "$key" ] && continue
       _db_is_system_key "$key" && continue
       local line payload value
-      line=$(_db_read_key_lines "$key" | tail -n 1)
+      line=$(_db_read_key_lines_for_query "$key" | tail -n 1)
       payload="${line%,*}"
       value=$(_db_extract_value "$payload")
       if [ "$value" != "__deleted__" ]; then
@@ -237,7 +238,7 @@ db_mget() {
     local key line payload checksum computed value
     for key in "$@"; do
       _db_validate_key "$key" || continue
-      line=$(_db_read_key_lines "$key" | tail -n 1)
+      line=$(_db_read_key_lines_for_query "$key" | tail -n 1)
       [ -z "$line" ] && continue
 
       payload="${line%,*}"
@@ -258,42 +259,53 @@ db_mget() {
   ) 200>"${db}.lock"
 }
 
+_db_adjust_counter_body() {
+  local key="$1" delta="$2"
+  local line payload checksum computed value new_value record
+
+  line=$(_db_read_key_lines_for_query "$key" | tail -n 1)
+
+  if [ -z "$line" ]; then
+    echo "Error: key does not exist" >&2
+    return 1
+  fi
+
+  payload="${line%,*}"
+  checksum="${line##*,}"
+  computed=$(_db_checksum "$payload")
+  if [ "$checksum" != "$computed" ]; then
+    echo "Error: checksum mismatch" >&2
+    return 1
+  fi
+
+  value=$(_db_extract_value "$payload")
+  if [ "$value" = "__deleted__" ]; then
+    echo "Error: key does not exist" >&2
+    return 1
+  fi
+
+  if ! _db_is_integer "$value"; then
+    echo "Error: value is not an integer" >&2
+    return 1
+  fi
+
+  new_value=$(( value + delta ))
+  record=$(_db_format_record "$key" "$new_value")
+  _db_write_record "$record"
+  echo "$new_value"
+}
+
 _db_adjust_counter() {
   local key="$1" delta="$2"
 
+  if _db_tx_active; then
+    _db_adjust_counter_body "$key" "$delta"
+    return 0
+  fi
+
   (
     _db_lock_exclusive
-    local line payload checksum computed value new_value record
-    line=$(_db_read_key_lines "$key" | tail -n 1)
-
-    if [ -z "$line" ]; then
-      echo "Error: key does not exist" >&2
-      return 1
-    fi
-
-    payload="${line%,*}"
-    checksum="${line##*,}"
-    computed=$(_db_checksum "$payload")
-    if [ "$checksum" != "$computed" ]; then
-      echo "Error: checksum mismatch" >&2
-      return 1
-    fi
-
-    value=$(_db_extract_value "$payload")
-    if [ "$value" = "__deleted__" ]; then
-      echo "Error: key does not exist" >&2
-      return 1
-    fi
-
-    if ! _db_is_integer "$value"; then
-      echo "Error: value is not an integer" >&2
-      return 1
-    fi
-
-    new_value=$(( value + delta ))
-    record=$(_db_format_record "$key" "$new_value")
-    _db_append_wal "$record"
-    echo "$new_value"
+    _db_adjust_counter_body "$key" "$delta"
   ) 200>"${db}.lock"
 }
 
@@ -343,40 +355,51 @@ db_update() {
 
   local key="$1" expected="$2" new_value="$3"
 
+  if _db_tx_active; then
+    _db_update_body "$key" "$expected" "$new_value"
+    return 0
+  fi
+
   (
     _db_lock_exclusive
-    local line payload checksum computed current
-    line=$(_db_read_key_lines "$key" | tail -n 1)
-
-    if [ -z "$line" ]; then
-      echo "Error: key does not exist" >&2
-      return 1
-    fi
-
-    payload="${line%,*}"
-    checksum="${line##*,}"
-    computed=$(_db_checksum "$payload")
-    if [ "$checksum" != "$computed" ]; then
-      echo "Error: checksum mismatch" >&2
-      return 1
-    fi
-
-    current=$(_db_extract_value "$payload")
-    if [ "$current" = "__deleted__" ]; then
-      echo "Error: key does not exist" >&2
-      return 1
-    fi
-
-    if [ "$current" != "$expected" ]; then
-      echo "Error: current value does not match expected value" >&2
-      return 1
-    fi
-
-    local record
-    record=$(_db_format_record "$key" "$new_value")
-    _db_append_wal "$record"
-    return 0
+    _db_update_body "$key" "$expected" "$new_value"
   ) 200>"${db}.lock"
+}
+
+_db_update_body() {
+  local key="$1" expected="$2" new_value="$3"
+  local line payload checksum computed current
+
+  line=$(_db_read_key_lines_for_query "$key" | tail -n 1)
+
+  if [ -z "$line" ]; then
+    echo "Error: key does not exist" >&2
+    return 1
+  fi
+
+  payload="${line%,*}"
+  checksum="${line##*,}"
+  computed=$(_db_checksum "$payload")
+  if [ "$checksum" != "$computed" ]; then
+    echo "Error: checksum mismatch" >&2
+    return 1
+  fi
+
+  current=$(_db_extract_value "$payload")
+  if [ "$current" = "__deleted__" ]; then
+    echo "Error: key does not exist" >&2
+    return 1
+  fi
+
+  if [ "$current" != "$expected" ]; then
+    echo "Error: current value does not match expected value" >&2
+    return 1
+  fi
+
+  local record
+  record=$(_db_format_record "$key" "$new_value")
+  _db_write_record "$record"
+  return 0
 }
 
 db_keys() {
@@ -415,7 +438,7 @@ db_keys() {
       _db_is_system_key "$key" && continue
       seen[$key]=1
 
-    done < <(_db_read_all_lines)
+    done < <(_db_read_all_lines_for_query)
 
     if [ "$has_error" -eq 1 ]; then
       return 1
@@ -427,7 +450,7 @@ db_keys() {
       # shellcheck disable=SC2053
       [[ "$key" != $pattern ]] && continue
       local line payload value
-      line=$(_db_read_key_lines "$key" | tail -n 1)
+      line=$(_db_read_key_lines_for_query "$key" | tail -n 1)
       payload="${line%,*}"
       value=$(_db_extract_value "$payload")
       if [ "$value" != "__deleted__" ]; then
@@ -479,7 +502,7 @@ db_search() {
       _db_is_system_key "$key" && continue
       seen[$key]=1
 
-    done < <(_db_read_all_lines)
+    done < <(_db_read_all_lines_for_query)
 
     if [ "$has_error" -eq 1 ]; then
       return 1
@@ -489,7 +512,7 @@ db_search() {
       [ -z "$key" ] && continue
       _db_is_system_key "$key" && continue
       local line payload latest_value
-      line=$(_db_read_key_lines "$key" | tail -n 1)
+      line=$(_db_read_key_lines_for_query "$key" | tail -n 1)
       payload="${line%,*}"
       latest_value=$(_db_extract_value "$payload")
       if [ "$latest_value" != "__deleted__" ] && [[ "$latest_value" == *"$term"* ]]; then

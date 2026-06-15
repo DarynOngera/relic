@@ -1,4 +1,5 @@
 # shellcheck shell=bash
+# shellcheck source=src/db_tx.sh
 
 _db_check_flock() {
   if ! command -v flock >/dev/null 2>&1; then
@@ -9,9 +10,17 @@ _db_check_flock() {
 }
 
 _db_lock_exclusive() {
-  flock -x 200
+  if _db_tx_active; then
+    return 0
+  fi
+  local timeout="${DB_LOCK_TIMEOUT:-10}"
+  flock -w "$timeout" -x 200
 }
 
 _db_lock_shared() {
-  flock -s 200
+  if _db_tx_active; then
+    return 0
+  fi
+  local timeout="${DB_LOCK_TIMEOUT:-10}"
+  flock -w "$timeout" -s 200
 }

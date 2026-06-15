@@ -10,7 +10,7 @@ setup() {
 }
 
 teardown() {
-  rm -f "$DB_FILE" "$DB_FILE.lock" "$DB_FILE.wal" "db" "db.wal" "db.lock" "$DB_FILE."* "$DB_FILE.backup" "$DB_FILE.backup.wal"
+  rm -f "$DB_FILE" "$DB_FILE.lock" "$DB_FILE.wal" "db" "db.wal" "db.lock" "$DB_FILE."* "$DB_FILE.backup" "$DB_FILE.backup.wal" "$DB_FILE.tx.wal" "$DB_FILE.tx.snapshot"
 }
 
 @test "db_init uses custom db path" {
@@ -182,7 +182,7 @@ teardown() {
 }
 
 @test "all public functions are loaded from modules" {
-  run bash -c 'source "'"$BATS_TEST_DIRNAME"'/../src/db.sh"; declare -f db_init db_set db_get db_delete db_exists db_history db_list db_stats db_sync db_verify db_migrate db_mset db_mget db_incr db_decr db_update db_keys db_search db_clear db_count db_size db_compact db_vacuum db_backup db_restore db_truncate >/dev/null'
+  run bash -c 'source "'"$BATS_TEST_DIRNAME"'/../src/db.sh"; declare -f db_init db_set db_get db_delete db_exists db_history db_list db_stats db_sync db_verify db_migrate db_mset db_mget db_incr db_decr db_update db_keys db_search db_clear db_count db_size db_compact db_vacuum db_backup db_restore db_truncate db_begin db_commit db_rollback >/dev/null'
   [ "$status" -eq 0 ]
 }
 
@@ -395,4 +395,88 @@ teardown() {
   db_set "key" "value"
   result=$(db_size)
   [[ "$result" =~ [0-9]+B ]]
+}
+
+@test "db_begin db_commit makes writes visible" {
+  db_begin
+  db_set "tx_key" "tx_value"
+  result=$(db_get "tx_key")
+  [ "$result" = "tx_value" ]
+  db_commit
+  result=$(db_get "tx_key")
+  [ "$result" = "tx_value" ]
+}
+
+@test "db_begin db_rollback discards writes" {
+  db_begin
+  db_set "tx_key" "tx_value"
+  db_rollback
+  run db_get "tx_key"
+  [ "$status" -eq 1 ]
+}
+
+@test "db_history includes uncommitted transaction writes" {
+  db_set "tx_key" "before"
+  db_sync
+  db_begin
+  db_set "tx_key" "during"
+  result=$(db_history "tx_key" | wc -l)
+  [ "$result" -eq 2 ]
+  db_rollback
+}
+
+@test "nested transaction only commits on outer commit" {
+  db_begin
+  db_set "tx_key" "outer"
+  db_begin
+  db_set "tx_key2" "inner"
+  db_commit
+  result=$(db_get "tx_key2")
+  [ "$result" = "inner" ]
+  db_commit
+  result=$(db_get "tx_key")
+  [ "$result" = "outer" ]
+  result=$(db_get "tx_key2")
+  [ "$result" = "inner" ]
+}
+
+@test "nested rollback aborts all levels" {
+  db_begin
+  db_set "tx_key" "outer"
+  db_begin
+  db_set "tx_key2" "inner"
+  db_rollback
+  run db_get "tx_key"
+  [ "$status" -eq 1 ]
+  run db_get "tx_key2"
+  [ "$status" -eq 1 ]
+}
+
+@test "reads inside transaction see snapshot not concurrent commits" {
+  db_set "shared" "original"
+  db_sync
+  db_begin
+  result=$(db_get "shared")
+  [ "$result" = "original" ]
+  db_commit
+}
+
+@test "maintenance operations blocked during transaction" {
+  db_begin
+  run db_sync
+  [ "$status" -eq 1 ]
+  run db_compact
+  [ "$status" -eq 1 ]
+  db_rollback
+}
+
+@test "db_init rolls back leftover transaction files" {
+  db_set "a" "1"
+  db_sync
+  cp "$DB_FILE" "$DB_FILE.tx.snapshot"
+  echo 'txkey,"txvalue",2026-06-15T00:00:00+00:00,invalid' > "$DB_FILE.tx.wal"
+  run db_init
+  [ "$status" -eq 0 ]
+  [ ! -f "$DB_FILE.tx.wal" ]
+  [ ! -f "$DB_FILE.tx.snapshot" ]
 }

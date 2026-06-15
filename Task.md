@@ -48,14 +48,14 @@ A learning project to build a comprehensive, production-grade append-only key-va
 - [x] `db_truncate` — size-limited log rotation
 - [x] `db_migrate` — schema version migration
 
-## Phase 4 — Transactions (Basic ACID)
+## Phase 4 — Transactions (Basic ACID) (Complete)
 
-- [ ] `db_begin` — start transaction
-- [ ] `db_commit` — commit changes
-- [ ] `db_rollback` — abort transaction
-- [ ] Snapshot isolation for reads
-- [ ] Deadlock detection / timeout
-- [ ] Transaction log for recovery
+- [x] `db_begin` — start transaction
+- [x] `db_commit` — commit changes
+- [x] `db_rollback` — abort transaction
+- [x] Snapshot isolation for reads
+- [x] Deadlock detection / timeout
+- [x] Transaction log for recovery
 
 ## Phase 5 — Performance & Observability (Complete)
 
@@ -102,9 +102,9 @@ A learning project to build a comprehensive, production-grade append-only key-va
 - **Phase 1**: Complete
 - **Phase 2**: Complete
 - **Phase 3**: Complete
-- **Phase 4**: Not started
+- **Phase 4**: Complete
 - **Phase 5**: Complete
-- **Completed**: Basic append-only log, tombstone deletion, timestamps, input validation, db_history, db_exists, db_list, db_stats, .gitignore, Makefile targets, atomic writes, file locking, fsync, SHA256 checksums, WAL, record validation, signal handling during migration, auto-migration, db_verify, modular engine split into src/db_*.sh modules, Phase 2 operations (batch, counters, conditional, search), Phase 3 maintenance (compact, vacuum, backup, restore, truncate, schema versioning), Phase 5 observability (benchmarks, logging, metrics, memory tracking, profiling)
+- **Completed**: Basic append-only log, tombstone deletion, timestamps, input validation, db_history, db_exists, db_list, db_stats, .gitignore, Makefile targets, atomic writes, file locking, fsync, SHA256 checksums, WAL, record validation, signal handling during migration, auto-migration, db_verify, modular engine split into src/db_*.sh modules, Phase 2 operations (batch, counters, conditional, search), Phase 3 maintenance (compact, vacuum, backup, restore, truncate, schema versioning), Phase 4 transactions (begin/commit/rollback, snapshot isolation, nested transactions, lock timeout, recovery), Phase 5 observability (benchmarks, logging, metrics, memory tracking, profiling)
 - **Known Issues**: None
 
 ## Design Decisions

@@ -22,5 +22,8 @@ source "$_db_script_dir/db_storage.sh"
 # shellcheck source=src/db_ops.sh
 source "$_db_script_dir/db_ops.sh"
 
+# shellcheck source=src/db_tx.sh
+source "$_db_script_dir/db_tx.sh"
+
 # shellcheck source=src/db_maint.sh
 source "$_db_script_dir/db_maint.sh"

@@ -57,6 +57,14 @@ db_sync             # Flush WAL to main database
 | `db_migrate` | Manually migrate old format to new |
 | `db_compact` | Remove tombstones and overwritten records |
 | `db_vacuum` | Compact and verify the database |
+
+### Transactions
+
+| Function | Description |
+|----------|-------------|
+| `db_begin` | Start (or nest) a transaction |
+| `db_commit` | Commit the current transaction level |
+| `db_rollback` | Abort the entire transaction |
 | `db_backup <dest>` | Hot backup to `<dest>` and `<dest>.wal` |
 | `db_restore <src>` | Restore from backup (refuses non-empty db) |
 | `db_truncate [max_bytes]` | Rotate db if larger than max (default 10 MB) |
@@ -123,15 +131,29 @@ Use `strace` to analyze syscalls (significantly slower):
 strace -c -e trace=file,desc bash benchmarks/run.sh
 ```
 
+## Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `db` | Database base path (default: `db`) |
+| `DB_LOG_LEVEL` | Logging level: `debug`, `info`, `warn`, `error` (default: `warn`) |
+| `DB_LOG_FILE` | Optional log file path |
+| `DB_LOCK_TIMEOUT` | Lock acquisition timeout in seconds (default: `10`) |
+| `DB_BATCH_SIZE` | Chunk size for `db_mset` writes (default: `100`) |
+| `BENCHMARK_COUNT` | Number of operations per benchmark (default: `1000`) |
+| `BENCHMARK_OUTPUT` | `human` or `json` (default: `human`) |
+| `BENCHMARK_WORKERS` | Parallel workers for concurrent benchmarks (default: `5`) |
+
 ## Project Structure
 
 ```
 ├── src/
 │   ├── db.sh           # Public entry point (sources all modules)
-│   ├── db_utils.sh     # Checksums, validation, record helpers
+│   ├── db_utils.sh     # Checksums, validation, logging, memory helpers
 │   ├── db_lock.sh      # flock read/write helpers
 │   ├── db_storage.sh   # WAL append/sync and read helpers
 │   ├── db_ops.sh       # Core operations (set, get, delete, etc.)
+│   ├── db_tx.sh        # Transactions (begin/commit/rollback)
 │   └── db_maint.sh     # Maintenance (init, sync, verify, stats, migrate)
 ├── tests/              # Test suites
 ├── benchmarks/         # Performance tests
