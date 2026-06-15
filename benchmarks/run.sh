@@ -12,6 +12,7 @@ BENCHMARK_COUNT="${BENCHMARK_COUNT:-1000}"
 BENCHMARK_OUTPUT="${BENCHMARK_OUTPUT:-human}"
 BENCHMARK_WORKERS="${BENCHMARK_WORKERS:-5}"
 DB_BATCH_SIZE="${DB_BATCH_SIZE:-100}"
+DB_NO_FSYNC="${DB_NO_FSYNC:-1}"
 
 db="$BENCHMARK_DB"
 
@@ -38,8 +39,8 @@ _db_percentile() {
 }
 
 _bench_stats() {
-  local name="$1" elapsed_ms="$2" count="$3" mem_peak_kb="$4"
-  shift 4
+  local name="$1" elapsed_ms="$2" count="$3" mem_peak_kb="$4" records_count="${5:-}"
+  shift 5
   local latencies=("$@")
 
   local ops_per_sec
@@ -47,6 +48,11 @@ _bench_stats() {
     ops_per_sec=$(awk -v c="$count" -v e="$elapsed_ms" 'BEGIN {printf "%.2f", c / (e / 1000)}')
   else
     ops_per_sec="N/A"
+  fi
+
+  local records_per_sec=""
+  if [ -n "$records_count" ] && [ "$elapsed_ms" -gt 0 ]; then
+    records_per_sec=$(awk -v c="$records_count" -v e="$elapsed_ms" 'BEGIN {printf "%.2f", c / (e / 1000)}')
   fi
 
   local min_lat max_lat p50 p95 p99
@@ -65,16 +71,26 @@ _bench_stats() {
   fi
 
   if [ "$BENCHMARK_OUTPUT" = "json" ]; then
-    printf '{"name":"%s","count":%s,"elapsed_ms":%s,"ops_per_sec":%s,"latency_ms":{"min":%s,"p50":%s,"p95":%s,"p99":%s,"max":%s},"memory_peak_kb":%s}' \
-      "$name" "$count" "$elapsed_ms" "$ops_per_sec" "$min_lat" "$p50" "$p95" "$p99" "$max_lat" "$mem_peak_kb"
+    if [ -n "$records_per_sec" ]; then
+      printf '{"name":"%s","count":%s,"elapsed_ms":%s,"ops_per_sec":%s,"records":%s,"records_per_sec":%s,"latency_ms":{"min":%s,"p50":%s,"p95":%s,"p99":%s,"max":%s},"memory_peak_kb":%s}' \
+        "$name" "$count" "$elapsed_ms" "$ops_per_sec" "$records_count" "$records_per_sec" "$min_lat" "$p50" "$p95" "$p99" "$max_lat" "$mem_peak_kb"
+    else
+      printf '{"name":"%s","count":%s,"elapsed_ms":%s,"ops_per_sec":%s,"latency_ms":{"min":%s,"p50":%s,"p95":%s,"p99":%s,"max":%s},"memory_peak_kb":%s}' \
+        "$name" "$count" "$elapsed_ms" "$ops_per_sec" "$min_lat" "$p50" "$p95" "$p99" "$max_lat" "$mem_peak_kb"
+    fi
   else
-    printf '%-30s count=%-6s ops/sec=%-10s elapsed=%-6s ms  latency(min/p50/p95/p99/max)=%s/%s/%s/%s/%s ms  mem_peak=%s KB\n' \
-      "$name" "$count" "$ops_per_sec" "$elapsed_ms" "$min_lat" "$p50" "$p95" "$p99" "$max_lat" "$mem_peak_kb"
+    if [ -n "$records_per_sec" ]; then
+      printf '%-30s count=%-6s ops/sec=%-10s records/sec=%-10s elapsed=%-6s ms  latency(min/p50/p95/p99/max)=%s/%s/%s/%s/%s ms  mem_peak=%s KB\n' \
+        "$name" "$count" "$ops_per_sec" "$records_per_sec" "$elapsed_ms" "$min_lat" "$p50" "$p95" "$p99" "$max_lat" "$mem_peak_kb"
+    else
+      printf '%-30s count=%-6s ops/sec=%-10s elapsed=%-6s ms  latency(min/p50/p95/p99/max)=%s/%s/%s/%s/%s ms  mem_peak=%s KB\n' \
+        "$name" "$count" "$ops_per_sec" "$elapsed_ms" "$min_lat" "$p50" "$p95" "$p99" "$max_lat" "$mem_peak_kb"
+    fi
   fi
 }
 
 _bench_run() {
-  local name="$1" count="$2" cmd="$3" setup_cmd="${4:-}"
+  local name="$1" count="$2" cmd="$3" setup_cmd="${4:-}" records_per_op="${5:-0}"
   local latencies=()
   local start end elapsed op_start op_end op_latency
   local mem_before mem_after mem_peak current_mem
@@ -114,7 +130,12 @@ _bench_run() {
     mem_peak=$mem_after
   fi
 
-  _bench_stats "$name" "$elapsed" "$count" "$mem_peak" "${latencies[@]}"
+  local records_count=""
+  if [ "$records_per_op" -gt 0 ]; then
+    records_count=$((count * records_per_op))
+  fi
+
+  _bench_stats "$name" "$elapsed" "$count" "$mem_peak" "$records_count" "${latencies[@]}"
 }
 
 _bench_run_concurrent() {
@@ -123,10 +144,13 @@ _bench_run_concurrent() {
   local start end elapsed
   local pids=()
   local mem_before mem_after mem_peak current_mem
+  local latency_file latencies=()
 
   db_init >/dev/null 2>&1
   : > "$db"
   : > "$db.wal"
+
+  latency_file=$(mktemp "${BENCHMARK_DB}.latencies.XXXXXX")
 
   if [ -n "$setup_cmd" ]; then
     eval "$setup_cmd"
@@ -138,8 +162,13 @@ _bench_run_concurrent() {
 
   for ((w = 0; w < workers; w++)); do
     (
+      local op_start op_end op_latency
       for ((i = 0; i < per_worker; i++)); do
+        op_start=$(_db_now_ms)
         eval "$cmd"
+        op_end=$(_db_now_ms)
+        op_latency=$((op_end - op_start))
+        echo "$op_latency" >> "$latency_file"
       done
     ) &
     pids+=("$!")
@@ -157,7 +186,12 @@ _bench_run_concurrent() {
     mem_peak=$mem_after
   fi
 
-  _bench_stats "$name" "$elapsed" "$count" "$mem_peak"
+  if [ -f "$latency_file" ]; then
+    mapfile -t latencies < "$latency_file"
+    rm -f "$latency_file"
+  fi
+
+  _bench_stats "$name" "$elapsed" "$count" "$mem_peak" "" "${latencies[@]}"
 }
 
 _bench_insert() {
@@ -202,7 +236,7 @@ main() {
   _bench_run "delete" "$BENCHMARK_COUNT" '_bench_delete $i' 'for ((k=0; k<BENCHMARK_COUNT; k++)); do _bench_insert $k; done'
   if [ "$BENCHMARK_OUTPUT" = "json" ]; then echo ','; fi
 
-  _bench_run "mset_batch" "$((BENCHMARK_COUNT / DB_BATCH_SIZE))" '_bench_mset $((i * DB_BATCH_SIZE))'
+  _bench_run "mset_batch" "$((BENCHMARK_COUNT / DB_BATCH_SIZE))" '_bench_mset $((i * DB_BATCH_SIZE))' "" "$DB_BATCH_SIZE"
   if [ "$BENCHMARK_OUTPUT" = "json" ]; then echo ','; fi
 
   _bench_run_concurrent "concurrent_insert" "$BENCHMARK_COUNT" "$BENCHMARK_WORKERS" 'db_set "concurrent_key_${RANDOM}_${i}" "value_${RANDOM}"'

@@ -66,7 +66,7 @@ A learning project to build a comprehensive, production-grade append-only key-va
 - [x] Performance profiling with `time` and `strace`
 - [x] Configurable batch size and flush interval
 
-## Phase 6 — Testing (Production-Grade)
+## Phase 6 — Testing
 
 - [x] Unit tests with `bats` (Bash Automated Testing System)
 - [ ] Integration tests for concurrency (parallel readers/writers)
