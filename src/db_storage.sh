@@ -19,9 +19,21 @@ _db_sync_wal() {
 
 _db_read_key_lines() {
   local key="$1"
+  if [ -z "$db" ]; then
+    return 1
+  fi
+  if [ ! -f "$db" ] && [ ! -f "$db.wal" ]; then
+    return 1
+  fi
   awk -F, -v k="$key" '$1 == k' "$db" "$db.wal" 2>/dev/null
 }
 
 _db_read_all_lines() {
+  if [ -z "$db" ]; then
+    return 1
+  fi
+  if [ ! -f "$db" ] && [ ! -f "$db.wal" ]; then
+    return 1
+  fi
   cat "$db" "$db.wal" 2>/dev/null
 }

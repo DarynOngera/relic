@@ -197,18 +197,20 @@ db_mset() {
   fi
   _db_check_flock || return 1
 
-  local records=""
+  local records=()
   while [ $# -gt 0 ]; do
     _db_validate_key_value "$1" "$2" || return 1
     local record
     record=$(_db_format_record "$1" "$2")
-    records="$records$record"$'\n'
+    records+=("$record")
     shift 2
   done
 
   (
     _db_lock_exclusive
-    printf '%s' "$records" >> "$db.wal"
+    if [ ${#records[@]} -gt 0 ]; then
+      printf '%s\n' "${records[@]}" >> "$db.wal"
+    fi
   ) 200>"${db}.lock"
 
   return 0
@@ -251,23 +253,13 @@ db_mget() {
   ) 200>"${db}.lock"
 }
 
-db_incr() {
-  _db_validate_key "$1" || return 1
-  _db_check_flock || return 1
-
-  local amount=1
-  if [ $# -ge 2 ]; then
-    amount="$2"
-    if ! _db_is_integer "$amount"; then
-      echo "Error: increment amount must be an integer" >&2
-      return 1
-    fi
-  fi
+_db_adjust_counter() {
+  local key="$1" delta="$2"
 
   (
     _db_lock_exclusive
     local line payload checksum computed value new_value record
-    line=$(_db_read_key_lines "$1" | tail -n 1)
+    line=$(_db_read_key_lines "$key" | tail -n 1)
 
     if [ -z "$line" ]; then
       echo "Error: key does not exist" >&2
@@ -293,11 +285,27 @@ db_incr() {
       return 1
     fi
 
-    new_value=$(( value + amount ))
-    record=$(_db_format_record "$1" "$new_value")
+    new_value=$(( value + delta ))
+    record=$(_db_format_record "$key" "$new_value")
     _db_append_wal "$record"
     echo "$new_value"
   ) 200>"${db}.lock"
+}
+
+db_incr() {
+  _db_validate_key "$1" || return 1
+  _db_check_flock || return 1
+
+  local amount=1
+  if [ $# -ge 2 ]; then
+    amount="$2"
+    if ! _db_is_integer "$amount"; then
+      echo "Error: increment amount must be an integer" >&2
+      return 1
+    fi
+  fi
+
+  _db_adjust_counter "$1" "$amount"
 }
 
 db_decr() {
@@ -313,40 +321,7 @@ db_decr() {
     fi
   fi
 
-  (
-    _db_lock_exclusive
-    local line payload checksum computed value new_value record
-    line=$(_db_read_key_lines "$1" | tail -n 1)
-
-    if [ -z "$line" ]; then
-      echo "Error: key does not exist" >&2
-      return 1
-    fi
-
-    payload="${line%,*}"
-    checksum="${line##*,}"
-    computed=$(_db_checksum "$payload")
-    if [ "$checksum" != "$computed" ]; then
-      echo "Error: checksum mismatch" >&2
-      return 1
-    fi
-
-    value=$(_db_extract_value "$payload")
-    if [ "$value" = "__deleted__" ]; then
-      echo "Error: key does not exist" >&2
-      return 1
-    fi
-
-    if ! _db_is_integer "$value"; then
-      echo "Error: value is not an integer" >&2
-      return 1
-    fi
-
-    new_value=$(( value - amount ))
-    record=$(_db_format_record "$1" "$new_value")
-    _db_append_wal "$record"
-    echo "$new_value"
-  ) 200>"${db}.lock"
+  _db_adjust_counter "$1" "-$amount"
 }
 
 db_update() {
@@ -484,7 +459,7 @@ db_search() {
     while IFS= read -r line; do
       [ -z "$line" ] && continue
 
-      local payload checksum computed key value
+      local payload checksum computed key
       payload="${line%,*}"
       checksum="${line##*,}"
       computed=$(_db_checksum "$payload")
@@ -495,13 +470,9 @@ db_search() {
       fi
 
       key="${line%%,*}"
-      value=$(_db_extract_value "$payload")
       [ -z "$key" ] && continue
       _db_is_system_key "$key" && continue
-
-      if [[ "$value" == *"$term"* ]]; then
-        seen[$key]=1
-      fi
+      seen[$key]=1
 
     done < <(_db_read_all_lines)
 
@@ -516,7 +487,7 @@ db_search() {
       line=$(_db_read_key_lines "$key" | tail -n 1)
       payload="${line%,*}"
       latest_value=$(_db_extract_value "$payload")
-      if [ "$latest_value" != "__deleted__" ]; then
+      if [ "$latest_value" != "__deleted__" ] && [[ "$latest_value" == *"$term"* ]]; then
         echo "$key"
       fi
     done

@@ -107,40 +107,53 @@ db_verify() {
     local errors=0
     local total_lines=0
 
-    _verify_file() {
-      local file="$1"
-      local line_num=0
-      while IFS= read -r line; do
-        line_num=$((line_num + 1))
-        total_lines=$((total_lines + 1))
-        [ -z "$line" ] && continue
+    local line_num=0
+    while IFS= read -r line; do
+      line_num=$((line_num + 1))
+      total_lines=$((total_lines + 1))
+      [ -z "$line" ] && continue
 
-        local field_count
-        field_count=$(echo "$line" | awk -F',' '{print NF}')
-        if [ "$field_count" -ne 4 ]; then
-          echo "Error: $file line $line_num: invalid format (expected 4 fields, got $field_count)" >&2
-          errors=$((errors + 1))
-          continue
-        fi
+      local field_count
+      field_count=$(echo "$line" | awk -F',' '{print NF}')
+      if [ "$field_count" -ne 4 ]; then
+        echo "Error: $db line $line_num: invalid format (expected 4 fields, got $field_count)" >&2
+        errors=$((errors + 1))
+        continue
+      fi
 
-        local payload="${line%,*}"
-        local checksum="${line##*,}"
-        local computed
-        computed=$(_db_checksum "$payload")
-        if [ "$checksum" != "$computed" ]; then
-          echo "Error: $file line $line_num: checksum mismatch" >&2
-          errors=$((errors + 1))
-        fi
-      done < "$file"
-    }
+      local payload="${line%,*}"
+      local checksum="${line##*,}"
+      local computed
+      computed=$(_db_checksum "$payload")
+      if [ "$checksum" != "$computed" ]; then
+        echo "Error: $db line $line_num: checksum mismatch" >&2
+        errors=$((errors + 1))
+      fi
+    done < <(cat "$db" 2>/dev/null)
 
-    if [ -f "$db" ]; then
-      _verify_file "$db"
-    fi
+    line_num=0
+    while IFS= read -r line; do
+      line_num=$((line_num + 1))
+      total_lines=$((total_lines + 1))
+      [ -z "$line" ] && continue
 
-    if [ -f "$db.wal" ] && [ -s "$db.wal" ]; then
-      _verify_file "$db.wal"
-    fi
+      local field_count
+      field_count=$(echo "$line" | awk -F',' '{print NF}')
+      if [ "$field_count" -ne 4 ]; then
+        echo "Error: $db.wal line $line_num: invalid format (expected 4 fields, got $field_count)" >&2
+        errors=$((errors + 1))
+        continue
+      fi
+
+      local payload="${line%,*}"
+      local checksum="${line##*,}"
+      local computed
+      computed=$(_db_checksum "$payload")
+      if [ "$checksum" != "$computed" ]; then
+        echo "Error: $db.wal line $line_num: checksum mismatch" >&2
+        errors=$((errors + 1))
+      fi
+    done < <(cat "$db.wal" 2>/dev/null)
 
     if [ "$errors" -gt 0 ]; then
       echo "Found $errors corrupted record(s) out of $total_lines" >&2
@@ -208,10 +221,11 @@ db_clear() {
 
   (
     _db_lock_exclusive
+    : > "$db"
+    : > "$db.wal"
     local record
     record=$(_db_format_record "__system__" "__cleared__")
     echo "$record" >> "$db"
-    : > "$db.wal"
   ) 200>"${db}.lock"
 
   return 0

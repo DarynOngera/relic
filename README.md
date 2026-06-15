@@ -75,6 +75,8 @@ Records are stored as quoted CSV with timestamps and SHA256 checksums:
 key,"value",2026-06-12T02:56:00+00:00,abc123...
 ```
 
+Keys starting with `__` (double underscore) are reserved for internal system records (e.g. the `__cleared__` marker written by `db_clear`) and are hidden from user-facing queries.
+
 ## Design
 
 - **Append-only log**: No in-place updates

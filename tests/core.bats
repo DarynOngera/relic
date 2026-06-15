@@ -267,6 +267,7 @@ teardown() {
 
 @test "db_clear removes all active keys and writes audit marker" {
   db_mset "a" "1" "b" "2"
+  db_sync
   db_clear
   run db_get "a"
   [ "$status" -eq 1 ]
