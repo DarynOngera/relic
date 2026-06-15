@@ -82,10 +82,11 @@ db_sync             # Flush WAL to main database
 | Target | Description |
 |--------|-------------|
 | `make setup` | Create project directories |
-| `make test` | Run all tests (requires bats) |
-| `make lint` | Run shellcheck on all .sh and .bats files |
+| `make test` | Run unit, integration, crash, fuzz, and property tests (requires bats) |
+| `make lint` | Run shellcheck on all .sh, .bats, and helper files |
 | `make clean` | Remove build artifacts and test data |
 | `make benchmark` | Run performance benchmarks |
+| `make stress` | Run manual stress tests (`RUN_STRESS_TESTS=1`) |
 | `make install` | Install to /usr/local/bin (optional) |
 
 ## Format
@@ -146,6 +147,24 @@ Use `strace` to analyze syscalls (significantly slower):
 strace -c -e trace=file,desc bash benchmarks/run.sh
 ```
 
+## Testing
+
+```bash
+make test                              # fast unit/integration/fuzz/property/crash tests
+make stress                            # manual stress tests (default 500 records)
+RUN_STRESS_TESTS=1 STRESS_COUNT=10000 make stress   # larger stress run
+bats tests/integration.bats            # run one suite
+```
+
+Test suites:
+
+- `tests/core.bats` — unit tests for all API functions
+- `tests/integration.bats` — concurrent readers/writers, atomic counters, conditional updates
+- `tests/crash.bats` — `kill -9` mid-write recovery with fsync and `DB_NO_FSYNC=1`
+- `tests/fuzz.bats` — random keys/values including commas
+- `tests/property.bats` — property-based invariants (latest write wins, count correctness, etc.)
+- `tests/stress.bats` — manual larger-scale insert/read/delete/compact tests
+
 ## Environment Variables
 
 | Variable | Description |
@@ -164,6 +183,9 @@ strace -c -e trace=file,desc bash benchmarks/run.sh
 | `BENCHMARK_COUNT` | Number of operations per benchmark (default: `1000`) |
 | `BENCHMARK_OUTPUT` | `human` or `json` (default: `human`) |
 | `BENCHMARK_WORKERS` | Parallel workers for concurrent benchmarks (default: `5`) |
+| `RUN_STRESS_TESTS` | Set to `1` to enable stress tests (default: `0`) |
+| `STRESS_COUNT` | Number of records for stress insert/delete/compact (default: `500`) |
+| `STRESS_READ_KEYS` | Number of keys to read in stress read test (default: `50`) |
 
 ## Project Structure
 
@@ -185,6 +207,15 @@ strace -c -e trace=file,desc bash benchmarks/run.sh
 │   ├── v0_to_v1.sh
 │   └── v1_to_v2.sh
 ├── tests/              # Test suites
+│   ├── core.bats
+│   ├── integration.bats
+│   ├── crash.bats
+│   ├── fuzz.bats
+│   ├── property.bats
+│   ├── stress.bats
+│   └── helpers/        # Test helper scripts
+├── .github/workflows/  # CI/CD
+│   └── ci.yml
 ├── benchmarks/         # Performance tests
 ├── docs/               # Documentation and ADRs
 ├── Makefile

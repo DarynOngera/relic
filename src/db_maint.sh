@@ -194,10 +194,9 @@ db_verify() {
       total_lines=$((total_lines + 1))
       [ -z "$line" ] && continue
 
-      local field_count
-      field_count=$(echo "$line" | awk -F',' '{print NF}')
-      if [ "$field_count" -ne 4 ]; then
-        echo "Error: $db line $line_num: invalid format (expected 4 fields, got $field_count)" >&2
+      local record_re='^[^,]+,"[^"]*",[^,]+,[^,]+$'
+      if [[ ! "$line" =~ $record_re ]]; then
+        echo "Error: $db line $line_num: invalid format (expected 4 CSV fields)" >&2
         errors=$((errors + 1))
         continue
       fi
@@ -218,10 +217,9 @@ db_verify() {
       total_lines=$((total_lines + 1))
       [ -z "$line" ] && continue
 
-      local field_count
-      field_count=$(echo "$line" | awk -F',' '{print NF}')
-      if [ "$field_count" -ne 4 ]; then
-        echo "Error: $db.wal line $line_num: invalid format (expected 4 fields, got $field_count)" >&2
+      local record_re='^[^,]+,"[^"]*",[^,]+,[^,]+$'
+      if [[ ! "$line" =~ $record_re ]]; then
+        echo "Error: $db.wal line $line_num: invalid format (expected 4 CSV fields)" >&2
         errors=$((errors + 1))
         continue
       fi
@@ -559,9 +557,8 @@ db_restore() {
       line_num=$((line_num + 1))
       [ -z "$line" ] && continue
 
-      local field_count
-      field_count=$(echo "$line" | awk -F',' '{print NF}')
-      if [ "$field_count" -ne 4 ]; then
+      local record_re='^[^,]+,"[^"]*",[^,]+,[^,]+$'
+      if [[ ! "$line" =~ $record_re ]]; then
         echo "Error: $src line $line_num: invalid format" >&2
         errors=$((errors + 1))
         continue

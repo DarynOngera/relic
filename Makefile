@@ -1,4 +1,4 @@
-.PHONY: setup test lint clean benchmark install
+.PHONY: setup test lint clean benchmark install stress
 
 setup:
 	mkdir -p src tests benchmarks docs
@@ -15,7 +15,7 @@ test:
 lint:
 	@echo "Running shellcheck..."
 	if command -v shellcheck >/dev/null 2>&1; then \
-		shellcheck -x src/*.sh tests/*.bats benchmarks/*.sh; \
+		shellcheck -x src/*.sh tests/*.bats tests/helpers/*.sh benchmarks/*.sh; \
 	else \
 		echo "Error: shellcheck is not installed. Install: apt-get install shellcheck" >&2; \
 		exit 1; \
@@ -33,6 +33,15 @@ benchmark:
 		bash benchmarks/run.sh; \
 	else \
 		echo "No benchmarks found. Create benchmarks/run.sh" >&2; \
+	fi
+
+stress:
+	@echo "Running stress tests..."
+	if command -v bats >/dev/null 2>&1; then \
+		RUN_STRESS_TESTS=1 bats tests/stress.bats; \
+	else \
+		echo "Error: bats is not installed. Install from https://github.com/bats-core/bats-core" >&2; \
+		exit 1; \
 	fi
 
 install:

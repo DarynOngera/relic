@@ -69,12 +69,12 @@ A learning project to build a comprehensive, production-grade append-only key-va
 ## Phase 6 — Testing
 
 - [x] Unit tests with `bats` (Bash Automated Testing System)
-- [ ] Integration tests for concurrency (parallel readers/writers)
-- [ ] Crash recovery tests (kill -9 mid-write)
-- [ ] Fuzz testing with random keys/values
-- [ ] Property-based testing (e.g., `db_get` always returns latest `db_set`)
-- [ ] Stress tests (millions of records)
-- [ ] CI/CD pipeline (GitHub Actions)
+- [x] Integration tests for concurrency (parallel readers/writers)
+- [x] Crash recovery tests (kill -9 mid-write)
+- [x] Fuzz testing with random keys/values
+- [x] Property-based testing (e.g., `db_get` always returns latest `db_set`)
+- [x] Stress tests (millions of records)
+- [x] CI/CD pipeline (GitHub Actions)
 
 ## Phase 7 — Advanced Features
 
@@ -104,7 +104,7 @@ A learning project to build a comprehensive, production-grade append-only key-va
 - **Phase 3**: Complete
 - **Phase 4**: Complete
 - **Phase 5**: Complete
-- **Completed**: Basic append-only log, tombstone deletion, timestamps, input validation, db_history, db_exists, db_list, db_stats, .gitignore, Makefile targets, atomic writes, file locking, fsync, SHA256 checksums, WAL, record validation, signal handling during migration, auto-migration, db_verify, modular engine split into src/db_*.sh modules, Phase 2 operations (batch, counters, conditional, search), Phase 3 maintenance (compact, vacuum, backup, restore, truncate, schema versioning), Phase 4 transactions (begin/commit/rollback, snapshot isolation, nested transactions, lock timeout, recovery), Phase 5 observability (benchmarks, logging, metrics, memory tracking, profiling), Phase 7 advanced features (JSON values via Base64, TTL/expiration with hidden metadata, AES-256 encryption at rest with whole-record default and value-only option, sourced Bash triggers, schema migration framework with ordered scripts, gzip compression for rotated segments and optional backup compression, local and command-hook replication with fsync)
+- **Completed**: Basic append-only log, tombstone deletion, timestamps, input validation, db_history, db_exists, db_list, db_stats, .gitignore, Makefile targets, atomic writes, file locking, fsync, SHA256 checksums, WAL, record validation, signal handling during migration, auto-migration, db_verify, modular engine split into src/db_*.sh modules, Phase 2 operations (batch, counters, conditional, search), Phase 3 maintenance (compact, vacuum, backup, restore, truncate, schema versioning), Phase 4 transactions (begin/commit/rollback, snapshot isolation, nested transactions, lock timeout, recovery), Phase 5 observability (benchmarks, logging, metrics, memory tracking, profiling), Phase 6 testing (integration tests for concurrent readers/writers, crash recovery with fsync and no-fsync modes, fuzz testing with random keys/values, property-based tests, manual stress tests, GitHub Actions CI), Phase 7 advanced features (JSON values via Base64, TTL/expiration with hidden metadata, AES-256 encryption at rest with whole-record default and value-only option, sourced Bash triggers, schema migration framework with ordered scripts, gzip compression for rotated segments and optional backup compression, local and command-hook replication with fsync)
 - **Known Issues**: WAL durability is now per-write fsync; large workloads can set `DB_NO_FSYNC=1` to trade durability for speed. No CLI wrapper yet; use `source src/db.sh`.
 
 ## Design Decisions
