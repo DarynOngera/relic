@@ -16,6 +16,7 @@ db_set() {
   (
     _db_lock_exclusive
     _db_write_record "$record"
+    _db_fire_trigger_if_user_key "set" "$1" "$2"
   ) 200>"${db}.lock"
 
   return 0
@@ -31,6 +32,7 @@ db_delete() {
   (
     _db_lock_exclusive
     _db_write_record "$record"
+    _db_fire_trigger_if_user_key "delete" "$1" "__deleted__"
   ) 200>"${db}.lock"
 
   return 0
@@ -63,6 +65,9 @@ db_get() {
 
     value=$(_db_extract_value "$payload")
     if [ "$value" = "__deleted__" ]; then
+      return 1
+    fi
+    if _db_is_expired "$1"; then
       return 1
     fi
     echo "$value"
@@ -135,6 +140,9 @@ db_exists() {
     if [ "$value" = "__deleted__" ]; then
       return 1
     fi
+    if _db_is_expired "$1"; then
+      return 1
+    fi
     return 0
   ) 200>"${db}.lock"
 }
@@ -182,7 +190,7 @@ db_list() {
       line=$(_db_read_key_lines_for_query "$key" | tail -n 1)
       payload="${line%,*}"
       value=$(_db_extract_value "$payload")
-      if [ "$value" != "__deleted__" ]; then
+      if [ "$value" != "__deleted__" ] && ! _db_is_expired "$key"; then
         echo "$key"
       fi
     done
@@ -215,6 +223,16 @@ db_mset() {
       while [ $i -lt ${#records[@]} ]; do
         printf '%s\n' "${records[@]:i:batch_size}" >> "$db.wal"
         i=$((i + batch_size))
+      done
+      local k=0
+      while [ $k -lt ${#records[@]} ]; do
+        local rec="${records[$k]}"
+        local rec_key="${rec%%,*}"
+        local rec_payload="${rec%,*}"
+        local rec_value
+        rec_value=$(_db_extract_value "$rec_payload")
+        _db_fire_trigger_if_user_key "set" "$rec_key" "$rec_value"
+        k=$((k + 1))
       done
     fi
   ) 200>"${db}.lock"
@@ -250,7 +268,7 @@ db_mget() {
       fi
 
       value=$(_db_extract_value "$payload")
-      if [ "$value" != "__deleted__" ]; then
+      if [ "$value" != "__deleted__" ] && ! _db_is_expired "$key"; then
         printf '%s\t%s\n' "$key" "$value"
       fi
     done
@@ -283,6 +301,10 @@ _db_adjust_counter_body() {
     echo "Error: key does not exist" >&2
     return 1
   fi
+  if _db_is_expired "$key"; then
+    echo "Error: key does not exist" >&2
+    return 1
+  fi
 
   if ! _db_is_integer "$value"; then
     echo "Error: value is not an integer" >&2
@@ -292,6 +314,7 @@ _db_adjust_counter_body() {
   new_value=$(( value + delta ))
   record=$(_db_format_record "$key" "$new_value")
   _db_write_record "$record"
+  _db_fire_trigger_if_user_key "set" "$key" "$new_value"
   echo "$new_value"
 }
 
@@ -394,6 +417,10 @@ _db_update_body() {
     echo "Error: key does not exist" >&2
     return 1
   fi
+  if _db_is_expired "$key"; then
+    echo "Error: key does not exist" >&2
+    return 1
+  fi
 
   if [ "$current" != "$expected" ]; then
     echo "Error: current value does not match expected value" >&2
@@ -403,6 +430,7 @@ _db_update_body() {
   local record
   record=$(_db_format_record "$key" "$new_value")
   _db_write_record "$record"
+  _db_fire_trigger_if_user_key "set" "$key" "$new_value"
   return 0
 }
 
@@ -457,7 +485,7 @@ db_keys() {
       line=$(_db_read_key_lines_for_query "$key" | tail -n 1)
       payload="${line%,*}"
       value=$(_db_extract_value "$payload")
-      if [ "$value" != "__deleted__" ]; then
+      if [ "$value" != "__deleted__" ] && ! _db_is_expired "$key"; then
         echo "$key"
       fi
     done
@@ -519,7 +547,7 @@ db_search() {
       line=$(_db_read_key_lines_for_query "$key" | tail -n 1)
       payload="${line%,*}"
       latest_value=$(_db_extract_value "$payload")
-      if [ "$latest_value" != "__deleted__" ] && [[ "$latest_value" == *"$term"* ]]; then
+      if [ "$latest_value" != "__deleted__" ] && ! _db_is_expired "$key" && [[ "$latest_value" == *"$term"* ]]; then
         echo "$key"
       fi
     done

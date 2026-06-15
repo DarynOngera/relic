@@ -494,3 +494,176 @@ teardown() {
   [ ! -f "$DB_FILE.tx.wal" ]
   [ ! -f "$DB_FILE.tx.snapshot" ]
 }
+
+@test "db_set_json stores and db_get_json retrieves JSON" {
+  if ! command -v base64 >/dev/null 2>&1 && ! command -v openssl >/dev/null 2>&1; then
+    skip "base64/openssl unavailable"
+  fi
+  db_set_json "json_key" '{"name":"test","value":42}'
+  result=$(db_get_json "json_key")
+  [ "$result" = '{"name":"test","value":42}' ]
+}
+
+@test "db_set_json rejects invalid JSON when jq is available" {
+  if ! command -v jq >/dev/null 2>&1; then
+    skip "jq unavailable"
+  fi
+  run db_set_json "json_key" '{"invalid'
+  [ "$status" -eq 1 ]
+}
+
+@test "db_get_json fails for non-JSON value" {
+  if ! command -v base64 >/dev/null 2>&1 && ! command -v openssl >/dev/null 2>&1; then
+    skip "base64/openssl unavailable"
+  fi
+  db_set "plain_key" "not base64 json"
+  run db_get_json "plain_key"
+  [ "$status" -eq 1 ]
+}
+
+@test "db_set_json rejects empty JSON value" {
+  run db_set_json "json_key" ""
+  [ "$status" -eq 1 ]
+}
+
+@test "db_set_ttl stores value with expiry" {
+  db_set_ttl "ttl_key" "value" "10"
+  result=$(db_get "ttl_key")
+  [ "$result" = "value" ]
+  run db_ttl "ttl_key"
+  [ "$status" -eq 0 ]
+  [ "$output" -le 10 ]
+  [ "$output" -gt 0 ]
+}
+
+@test "db_expire sets expiry on existing key" {
+  db_set "ttl_key" "value"
+  db_expire "ttl_key" "10"
+  result=$(db_get "ttl_key")
+  [ "$result" = "value" ]
+}
+
+@test "db_get returns not found for expired key" {
+  db_set_ttl "ttl_key" "value" "1"
+  sleep 2
+  run db_get "ttl_key"
+  [ "$status" -eq 1 ]
+  run db_exists "ttl_key"
+  [ "$status" -eq 1 ]
+}
+
+@test "db_count excludes expired keys" {
+  db_set_ttl "ttl_key" "value" "1"
+  db_set "other" "value"
+  sleep 2
+  result=$(db_count)
+  [ "$result" -eq 1 ]
+}
+
+@test "db_compact removes expired records and TTL metadata" {
+  db_set_ttl "ttl_key" "value" "1"
+  sleep 2
+  db_compact
+  run grep '^ttl_key,"' "$DB_FILE"
+  [ "$status" -eq 1 ]
+  run grep '^__ttl__:ttl_key,' "$DB_FILE"
+  [ "$status" -eq 1 ]
+}
+
+@test "db_ttl returns remaining seconds" {
+  db_set_ttl "ttl_key" "value" "60"
+  result=$(db_ttl "ttl_key")
+  [ "$result" -le 60 ]
+  [ "$result" -gt 50 ]
+}
+
+@test "db_set_enc and db_get_enc round-trip value-only" {
+  if ! command -v openssl >/dev/null 2>&1; then
+    skip "openssl unavailable"
+  fi
+  DB_ENCRYPTION_KEY="testkey" DB_ENCRYPT_VALUES_ONLY=1 db_set_enc "enc_key" "secret"
+  result=$(DB_ENCRYPTION_KEY="testkey" DB_ENCRYPT_VALUES_ONLY=1 db_get_enc "enc_key")
+  [ "$result" = "secret" ]
+}
+
+@test "db_set_enc and db_get_enc round-trip whole-record" {
+  if ! command -v openssl >/dev/null 2>&1; then
+    skip "openssl unavailable"
+  fi
+  DB_ENCRYPTION_KEY="testkey" db_set_enc "enc_key" "secret"
+  result=$(DB_ENCRYPTION_KEY="testkey" db_get_enc "enc_key")
+  [ "$result" = "secret" ]
+}
+
+@test "db_get_enc fails with wrong key" {
+  if ! command -v openssl >/dev/null 2>&1; then
+    skip "openssl unavailable"
+  fi
+  DB_ENCRYPTION_KEY="testkey" db_set_enc "enc_key" "secret"
+  _get_enc_wrong_key() {
+    DB_ENCRYPTION_KEY="wrongkey" db_get_enc "enc_key"
+  }
+  run _get_enc_wrong_key
+  [ "$status" -eq 1 ]
+}
+
+@test "db_set_enc fails without DB_ENCRYPTION_KEY" {
+  if ! command -v openssl >/dev/null 2>&1; then
+    skip "openssl unavailable"
+  fi
+  _set_enc_no_key() {
+    unset DB_ENCRYPTION_KEY
+    db_set_enc "enc_key" "secret"
+  }
+  run _set_enc_no_key
+  [ "$status" -eq 1 ]
+}
+
+@test "db_get_enc fails without DB_ENCRYPTION_KEY" {
+  if ! command -v openssl >/dev/null 2>&1; then
+    skip "openssl unavailable"
+  fi
+  DB_ENCRYPTION_KEY="testkey" db_set_enc "enc_key" "secret"
+  _get_enc_no_key() {
+    unset DB_ENCRYPTION_KEY
+    db_get_enc "enc_key"
+  }
+  run _get_enc_no_key
+  [ "$status" -eq 1 ]
+}
+
+@test "db_trigger fires on set and delete" {
+  _my_trigger() {
+    echo "trigger:$1:$2:$3"
+  }
+  export -f _my_trigger
+  db_trigger set _my_trigger
+  db_trigger delete _my_trigger
+  result=$(db_set "trig_key" "value1")
+  [[ "$result" == *"trigger:set:trig_key:value1"* ]]
+  result=$(db_delete "trig_key")
+  [[ "$result" == *"trigger:delete:trig_key:__deleted__"* ]]
+}
+
+@test "db_trigger list shows registered functions" {
+  # shellcheck disable=SC2317
+  _dummy_trigger() { true; }
+  db_trigger set _dummy_trigger
+  result=$(db_trigger list)
+  [[ "$result" == *"_dummy_trigger"* ]]
+  db_trigger clear
+}
+
+@test "db_trigger clear removes all triggers" {
+  # shellcheck disable=SC2317
+  _dummy_trigger() { true; }
+  db_trigger set _dummy_trigger
+  db_trigger clear
+  result=$(db_trigger list)
+  [ -z "$result" ]
+}
+
+@test "db_trigger rejects unknown action" {
+  run db_trigger invalid
+  [ "$status" -eq 1 ]
+}

@@ -27,3 +27,15 @@ source "$_db_script_dir/db_tx.sh"
 
 # shellcheck source=src/db_maint.sh
 source "$_db_script_dir/db_maint.sh"
+
+# shellcheck source=src/db_json.sh
+source "$_db_script_dir/db_json.sh"
+
+# shellcheck source=src/db_ttl.sh
+source "$_db_script_dir/db_ttl.sh"
+
+# shellcheck source=src/db_crypto.sh
+source "$_db_script_dir/db_crypto.sh"
+
+# shellcheck source=src/db_triggers.sh
+source "$_db_script_dir/db_triggers.sh"

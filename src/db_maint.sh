@@ -319,7 +319,7 @@ db_count() {
       line=$(_db_read_key_lines "$key" | tail -n 1)
       payload="${line%,*}"
       value=$(_db_extract_value "$payload")
-      if [ "$value" != "__deleted__" ]; then
+      if [ "$value" != "__deleted__" ] && ! _db_is_expired "$key"; then
         count=$((count + 1))
       fi
     done
@@ -395,8 +395,24 @@ db_compact() {
       return 1
     fi
 
+    declare -A expired
+    for key in "${!latest[@]}"; do
+      if _db_is_expired "$key"; then
+        expired[$key]=1
+      fi
+    done
+
     for key in "${!latest[@]}"; do
       [ -z "$key" ] && continue
+      if [ "${expired[$key]:-}" = "1" ]; then
+        continue
+      fi
+      if [[ "$key" == __ttl__:* ]]; then
+        local target_key="${key#__ttl__:}"
+        if [ "${expired[$target_key]:-}" = "1" ]; then
+          continue
+        fi
+      fi
       local record="${latest[$key]}"
       local record_payload="${record%,*}"
       local record_value

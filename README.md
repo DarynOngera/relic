@@ -47,6 +47,14 @@ db_sync             # Flush WAL to main database
 | `db_clear` | Purge all data and write `__cleared__` marker |
 | `db_count` | Count active keys |
 | `db_size` | Human-readable total database size |
+| `db_set_json <key> <json>` | Store a JSON value (Base64-encoded; validated by `jq` if available) |
+| `db_get_json <key>` | Retrieve and decode a JSON value |
+| `db_set_ttl <key> <value> <ttl_seconds>` | Store a value with expiration |
+| `db_expire <key> <ttl_seconds>` | Set expiration on an existing key |
+| `db_ttl <key>` | Show remaining TTL seconds |
+| `db_set_enc <key> <value>` | Store an encrypted value |
+| `db_get_enc <key>` | Retrieve and decrypt a value |
+| `db_trigger set|delete|list|clear <func>` | Register/clear sourced Bash trigger callbacks |
 
 ### Data Integrity & Maintenance
 
@@ -105,6 +113,10 @@ Keys starting with `__` (double underscore) are reserved for internal system rec
 - **Schema versioning**: `__schema_version__` system key tracked automatically
 - **Logging**: `DB_LOG_LEVEL` and `DB_LOG_FILE` for debug/info/warn/error output
 - **Benchmarks**: `make benchmark` with human or JSON output, latency percentiles, and memory tracking
+- **JSON values**: Base64-encoded storage with optional `jq` validation
+- **TTL / expiration**: Hidden `__ttl__:<key>` metadata; expired keys are ignored and removed on compaction
+- **Encryption at rest**: AES-256-CBC via `openssl`; whole-record by default, value-only mode optional
+- **Triggers**: Sourced Bash callbacks fired on `set` and `delete` events
 
 ## Benchmarks
 
@@ -141,6 +153,8 @@ strace -c -e trace=file,desc bash benchmarks/run.sh
 | `DB_LOCK_TIMEOUT` | Lock acquisition timeout in seconds (default: `10`) |
 | `DB_BATCH_SIZE` | Chunk size for `db_mset` writes (default: `100`) |
 | `DB_NO_FSYNC` | Set to `1` to disable per-write WAL fsync (default: `0`) |
+| `DB_ENCRYPTION_KEY` | Passphrase for `db_set_enc` / `db_get_enc` |
+| `DB_ENCRYPT_VALUES_ONLY` | Set to `1` to encrypt only values; default whole-record encryption |
 | `BENCHMARK_COUNT` | Number of operations per benchmark (default: `1000`) |
 | `BENCHMARK_OUTPUT` | `human` or `json` (default: `human`) |
 | `BENCHMARK_WORKERS` | Parallel workers for concurrent benchmarks (default: `5`) |
@@ -155,7 +169,11 @@ strace -c -e trace=file,desc bash benchmarks/run.sh
 │   ├── db_storage.sh   # WAL append/sync and read helpers
 │   ├── db_ops.sh       # Core operations (set, get, delete, etc.)
 │   ├── db_tx.sh        # Transactions (begin/commit/rollback)
-│   └── db_maint.sh     # Maintenance (init, sync, verify, stats, migrate)
+│   ├── db_maint.sh     # Maintenance (init, sync, verify, stats, migrate)
+│   ├── db_json.sh      # JSON value support
+│   ├── db_ttl.sh       # TTL / expiration
+│   ├── db_crypto.sh    # Encryption at rest
+│   └── db_triggers.sh  # Write/delete triggers
 ├── tests/              # Test suites
 ├── benchmarks/         # Performance tests
 ├── docs/               # Documentation and ADRs
