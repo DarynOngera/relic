@@ -39,3 +39,6 @@ source "$_db_script_dir/db_crypto.sh"
 
 # shellcheck source=src/db_triggers.sh
 source "$_db_script_dir/db_triggers.sh"
+
+# shellcheck source=src/db_replica.sh
+source "$_db_script_dir/db_replica.sh"

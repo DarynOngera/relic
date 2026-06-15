@@ -63,12 +63,15 @@ db_init() {
     fi
   fi
 
-  local current_version
-  current_version=$(_db_get_schema_version)
-  if [ "$current_version" -lt "$_DB_SCHEMA_VERSION" ]; then
-    echo "Migrating database schema from version $current_version to $_DB_SCHEMA_VERSION..." >&2
-    db_migrate
+  if [ -f "$db" ] && [ ! -s "$db" ]; then
+    (
+      _db_lock_exclusive
+      local record
+      record=$(_db_format_record "__schema_version__" "$_DB_SCHEMA_VERSION")
+      echo "$record" >> "$db"
+    ) 200>"${db}.lock"
   fi
+
 }
 
 db_migrate() {
@@ -80,49 +83,87 @@ db_migrate() {
     return 1
   fi
 
-  local tmp
-  tmp=$(mktemp -p "$(dirname "$db")")
-  if [ -z "$tmp" ]; then
-    echo "Error: mktemp failed" >&2
-    return 1
-  fi
+  _db_sync_wal
 
-  trap 'rm -f "$tmp"; exit 1' INT TERM
+  local current_version
+  current_version=$(_db_get_schema_version)
 
-  local line_num=0 migrated=0
-  while IFS= read -r line; do
-    line_num=$((line_num + 1))
-    [ -z "$line" ] && continue
-
-    local field_count
-    field_count=$(echo "$line" | awk -F',' '{print NF}')
-    if [ "$field_count" -eq 4 ]; then
-      echo "$line" >> "$tmp"
-      migrated=$((migrated + 1))
-    elif [ "$field_count" -eq 3 ]; then
-      local checksum
-      checksum=$(_db_checksum "$line")
-      echo "$line,$checksum" >> "$tmp"
-      migrated=$((migrated + 1))
-    else
-      echo "Error: line $line_num: invalid format (expected 3 or 4 fields, got $field_count)" >&2
-      rm -f "$tmp"
-      trap - INT TERM
+  if [ ! -d "$(dirname "$db")/migrations" ] && [ ! -d "migrations" ]; then
+    if [ "$current_version" -lt 1 ]; then
+      echo "Error: migrations directory not found; cannot migrate from version $current_version" >&2
       return 1
     fi
-  done < "$db"
+    echo "No migrations directory found; database is at version $current_version" >&2
+    return 0
+  fi
 
-  (
-    _db_lock_exclusive
-    mv "$tmp" "$db"
-    : > "$db.wal"
-    local record
-    record=$(_db_format_record "__schema_version__" "$_DB_SCHEMA_VERSION")
-    echo "$record" >> "$db"
-  ) 200>"${db}.lock"
+  local migrations_dir
+  if [ -d "migrations" ]; then
+    migrations_dir="migrations"
+  else
+    migrations_dir="$(dirname "$db")/migrations"
+  fi
 
-  trap - INT TERM
-  echo "Migration complete: $migrated records migrated" >&2
+  local applied=0
+  local script
+  for script in "$migrations_dir"/v*_to_v*.sh; do
+    [ -f "$script" ] || continue
+
+    local base from to_raw to
+    base="${script##*/}"
+    base="${base%.sh}"
+    base="${base#v}"
+    from="${base%%_to_*}"
+    to_raw="${base#*_to_}"
+    to="${to_raw#v}"
+
+    if ! _db_is_integer "$from" || ! _db_is_integer "$to"; then
+      db_log_warn "Skipping migration script with invalid name: $script"
+      continue
+    fi
+
+    if [ "$current_version" -ne "$from" ]; then
+      continue
+    fi
+
+    if [ "$to" -le "$current_version" ]; then
+      db_log_warn "Skipping migration script that does not advance version: $script"
+      continue
+    fi
+
+    if ! (
+      _db_lock_exclusive
+      if ! source "$script"; then
+        echo "Error: failed to load migration script $script" >&2
+        return 1
+      fi
+      if ! declare -f migrate >/dev/null 2>&1; then
+        echo "Error: migration script $script does not define migrate()" >&2
+        return 1
+      fi
+      if ! migrate "$db"; then
+        echo "Error: migration $script failed" >&2
+        return 1
+      fi
+      local version_record migration_record
+      version_record=$(_db_format_record "__schema_version__" "$to")
+      migration_record=$(_db_format_record "__migration_applied__" "$from:$to")
+      echo "$version_record" >> "$db"
+      echo "$migration_record" >> "$db"
+    ) 200>"${db}.lock"; then
+      return 1
+    fi
+
+    current_version=$to
+    applied=$((applied + 1))
+  done
+
+  if [ "$applied" -eq 0 ]; then
+    echo "No migrations applied; database is at version $current_version" >&2
+  else
+    echo "Migration complete: $applied migration(s) applied; database is now version $current_version" >&2
+  fi
+
   return 0
 }
 
@@ -455,13 +496,25 @@ db_backup() {
     fi
 
     local errors=0
-    if [ -f "$db" ] && ! cp "$db" "$dest"; then
-      echo "Error: failed to backup database" >&2
-      errors=$((errors + 1))
-    fi
-    if [ -f "$db.wal" ] && ! cp "$db.wal" "$dest.wal"; then
-      echo "Error: failed to backup WAL" >&2
-      errors=$((errors + 1))
+    local compress="${DB_BACKUP_COMPRESS:-0}"
+    if [ "$compress" = "1" ] && command -v gzip >/dev/null 2>&1; then
+      if [ -f "$db" ] && ! (cp "$db" "$dest" && gzip -f "$dest"); then
+        echo "Error: failed to backup database" >&2
+        errors=$((errors + 1))
+      fi
+      if [ -f "$db.wal" ] && ! (cp "$db.wal" "$dest.wal" && gzip -f "$dest.wal"); then
+        echo "Error: failed to backup WAL" >&2
+        errors=$((errors + 1))
+      fi
+    else
+      if [ -f "$db" ] && ! cp "$db" "$dest"; then
+        echo "Error: failed to backup database" >&2
+        errors=$((errors + 1))
+      fi
+      if [ -f "$db.wal" ] && ! cp "$db.wal" "$dest.wal"; then
+        echo "Error: failed to backup WAL" >&2
+        errors=$((errors + 1))
+      fi
     fi
 
     if [ "$errors" -gt 0 ]; then
@@ -481,7 +534,10 @@ db_restore() {
 
   local src="$1"
 
-  if [ ! -f "$src" ]; then
+  local src_file="$src"
+  if [ -f "$src.gz" ]; then
+    src_file="$src.gz"
+  elif [ ! -f "$src" ]; then
     echo "Error: backup source does not exist" >&2
     return 1
   fi
@@ -495,6 +551,10 @@ db_restore() {
     _db_lock_exclusive
 
     local line_num=0 errors=0
+    local input_cmd="cat"
+    if [[ "$src_file" == *.gz ]]; then
+      input_cmd="gzip -dc"
+    fi
     while IFS= read -r line; do
       line_num=$((line_num + 1))
       [ -z "$line" ] && continue
@@ -515,21 +575,42 @@ db_restore() {
         echo "Error: $src line $line_num: checksum mismatch" >&2
         errors=$((errors + 1))
       fi
-    done < "$src"
+    done < <($input_cmd "$src_file")
 
     if [ "$errors" -gt 0 ]; then
       return 1
     fi
 
-    if ! cp "$src" "$db"; then
+    if ! cp "$src_file" "$db.gz.tmp" 2>/dev/null; then
       echo "Error: failed to restore database" >&2
       return 1
     fi
-
-    if [ -f "$src.wal" ]; then
-      if ! cp "$src.wal" "$db.wal"; then
-        echo "Error: failed to restore WAL" >&2
+    if [[ "$src_file" == *.gz ]]; then
+      if ! gzip -dc "$db.gz.tmp" > "$db"; then
+        rm -f "$db.gz.tmp"
+        echo "Error: failed to decompress database" >&2
         return 1
+      fi
+      rm -f "$db.gz.tmp"
+    else
+      mv "$db.gz.tmp" "$db"
+    fi
+
+    local wal_src="$src.wal"
+    if [ -f "$src.wal.gz" ]; then
+      wal_src="$src.wal.gz"
+    fi
+    if [ -f "$wal_src" ]; then
+      if [[ "$wal_src" == *.gz ]]; then
+        if ! gzip -dc "$wal_src" > "$db.wal"; then
+          echo "Error: failed to decompress WAL" >&2
+          return 1
+        fi
+      else
+        if ! cp "$wal_src" "$db.wal"; then
+          echo "Error: failed to restore WAL" >&2
+          return 1
+        fi
       fi
     else
       : > "$db.wal"
@@ -561,14 +642,21 @@ db_truncate() {
       return 0
     fi
 
-    rm -f "${db}.3"
+    rm -f "${db}.3" "${db}.3.gz"
     if [ -f "${db}.2" ]; then
       mv "${db}.2" "${db}.3"
+    elif [ -f "${db}.2.gz" ]; then
+      mv "${db}.2.gz" "${db}.3.gz"
     fi
     if [ -f "${db}.1" ]; then
       mv "${db}.1" "${db}.2"
+    elif [ -f "${db}.1.gz" ]; then
+      mv "${db}.1.gz" "${db}.2.gz"
     fi
     mv "$db" "${db}.1"
+    if command -v gzip >/dev/null 2>&1; then
+      gzip -f "${db}.1"
+    fi
     : > "$db"
 
     return 0

@@ -74,8 +74,9 @@ db_sync             # Flush WAL to main database
 | `db_commit` | Commit the current transaction level |
 | `db_rollback` | Abort the entire transaction |
 | `db_backup <dest>` | Hot backup to `<dest>` and `<dest>.wal` |
-| `db_restore <src>` | Restore from backup (refuses non-empty db) |
-| `db_truncate [max_bytes]` | Rotate db if larger than max (default 10 MB) |
+| `db_restore <src>` | Restore from backup (refuses non-empty db; supports `.gz`) |
+| `db_truncate [max_bytes]` | Rotate and gzip db if larger than max (default 10 MB) |
+| `db_replica_sync` | Flush replica WAL to main replica file |
 
 ## Makefile Targets
 
@@ -117,6 +118,9 @@ Keys starting with `__` (double underscore) are reserved for internal system rec
 - **TTL / expiration**: Hidden `__ttl__:<key>` metadata; expired keys are ignored and removed on compaction
 - **Encryption at rest**: AES-256-CBC via `openssl`; whole-record by default, value-only mode optional
 - **Triggers**: Sourced Bash callbacks fired on `set` and `delete` events
+- **Schema migrations**: Ordered `migrations/v*_to_v*.sh` scripts applied manually via `db_migrate`
+- **Compression**: gzip for rotated log segments and optional backup compression
+- **Replication**: Local replica file plus optional `DB_REPLICA_CMD` hook, with fsync'd writes
 
 ## Benchmarks
 
@@ -155,6 +159,9 @@ strace -c -e trace=file,desc bash benchmarks/run.sh
 | `DB_NO_FSYNC` | Set to `1` to disable per-write WAL fsync (default: `0`) |
 | `DB_ENCRYPTION_KEY` | Passphrase for `db_set_enc` / `db_get_enc` |
 | `DB_ENCRYPT_VALUES_ONLY` | Set to `1` to encrypt only values; default whole-record encryption |
+| `DB_REPLICA` | Local replica base path; records are appended to `<path>.wal` |
+| `DB_REPLICA_CMD` | Command invoked with each record on stdin for remote replication |
+| `DB_BACKUP_COMPRESS` | Set to `1` to gzip backups (default: `0`) |
 | `BENCHMARK_COUNT` | Number of operations per benchmark (default: `1000`) |
 | `BENCHMARK_OUTPUT` | `human` or `json` (default: `human`) |
 | `BENCHMARK_WORKERS` | Parallel workers for concurrent benchmarks (default: `5`) |
@@ -173,7 +180,11 @@ strace -c -e trace=file,desc bash benchmarks/run.sh
 │   ├── db_json.sh      # JSON value support
 │   ├── db_ttl.sh       # TTL / expiration
 │   ├── db_crypto.sh    # Encryption at rest
-│   └── db_triggers.sh  # Write/delete triggers
+│   ├── db_triggers.sh  # Write/delete triggers
+│   └── db_replica.sh   # Replication helpers
+├── migrations/         # Schema migration scripts
+│   ├── v0_to_v1.sh
+│   └── v1_to_v2.sh
 ├── tests/              # Test suites
 ├── benchmarks/         # Performance tests
 ├── docs/               # Documentation and ADRs

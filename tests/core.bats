@@ -2,6 +2,7 @@
 
 setup() {
   rm -f db db.wal db.lock
+  mkdir -p migrations
   # shellcheck source=src/db.sh
   source "$BATS_TEST_DIRNAME/../src/db.sh"
   DB_FILE="$BATS_TEST_DIRNAME/../test_db.tmp"
@@ -10,7 +11,7 @@ setup() {
 }
 
 teardown() {
-  rm -f "$DB_FILE" "$DB_FILE.lock" "$DB_FILE.wal" "db" "db.wal" "db.lock" "$DB_FILE."* "$DB_FILE.backup" "$DB_FILE.backup.wal" "$DB_FILE.tx.wal" "$DB_FILE.tx.snapshot"
+  rm -f "$DB_FILE" "$DB_FILE.lock" "$DB_FILE.wal" "db" "db.wal" "db.lock" "$DB_FILE."* "$DB_FILE.backup" "$DB_FILE.backup.wal" "$DB_FILE.backup.gz" "$DB_FILE.backup.wal.gz" "$DB_FILE.tx.wal" "$DB_FILE.tx.snapshot"
 }
 
 @test "db_init uses custom db path" {
@@ -114,15 +115,43 @@ teardown() {
 
 @test "db_migrate converts old format to new" {
   echo 'oldkey,"oldvalue",2026-06-12T00:00:00+00:00' > "$DB_FILE"
-  db_init
+  db_migrate
   result=$(db_get "oldkey")
-  [ "$result" = "oldvalue" ]
+  # v0_to_v1 converts format, then v1_to_v2 prepends v2: to user values
+  [ "$result" = "v2:oldvalue" ]
   # Verify new format has 4 fields
   local first_line
   first_line=$(head -n 1 "$DB_FILE")
   local field_count
   field_count=$(echo "$first_line" | awk -F',' '{print NF}')
   [ "$field_count" -eq 4 ]
+}
+
+@test "db_migrate applies ordered migration scripts" {
+  db_set "key" "value"
+  db_sync
+  db_migrate
+  result=$(db_get "key")
+  [ "$result" = "v2:value" ]
+  run grep '__migration_applied__' "$DB_FILE"
+  [ "$status" -eq 0 ]
+}
+
+@test "db_migrate is idempotent" {
+  db_set "key" "value"
+  db_sync
+  db_migrate
+  db_migrate
+  result=$(db_get "key")
+  [ "$result" = "v2:value" ]
+}
+
+@test "db_migrate fails without migrations directory on version 0 db" {
+  echo 'oldkey,"oldvalue",2026-06-12T00:00:00+00:00' > "$DB_FILE"
+  mv migrations "${DB_FILE}.migrations.bak"
+  run db_migrate
+  [ "$status" -eq 1 ]
+  mv "${DB_FILE}.migrations.bak" migrations
 }
 
 @test "db_verify reports clean database" {
@@ -263,16 +292,22 @@ teardown() {
   [ "$status" -eq 1 ]
 }
 
-@test "db_truncate rotates when size exceeded" {
+@test "db_truncate rotates and compresses when size exceeded" {
+  if ! command -v gzip >/dev/null 2>&1; then
+    skip "gzip unavailable"
+  fi
   db_set "key" "value"
   db_sync
   # Force small max size to trigger rotation
   db_truncate 1
-  [ -f "${DB_FILE}.1" ]
+  [ -f "${DB_FILE}.1.gz" ]
   [ ! -s "$DB_FILE" ]
 }
 
 @test "db_truncate keeps at most three rotated segments" {
+  if ! command -v gzip >/dev/null 2>&1; then
+    skip "gzip unavailable"
+  fi
   db_set "key" "value"
   db_sync
   db_truncate 1
@@ -285,10 +320,53 @@ teardown() {
   db_set "key" "value4"
   db_sync
   db_truncate 1
-  [ -f "${DB_FILE}.1" ]
-  [ -f "${DB_FILE}.2" ]
-  [ -f "${DB_FILE}.3" ]
+  [ -f "${DB_FILE}.1.gz" ]
+  [ -f "${DB_FILE}.2.gz" ]
+  [ -f "${DB_FILE}.3.gz" ]
   [ ! -f "${DB_FILE}.4" ]
+  [ ! -f "${DB_FILE}.4.gz" ]
+}
+
+@test "db_get finds values in compressed rotated segments" {
+  if ! command -v gzip >/dev/null 2>&1; then
+    skip "gzip unavailable"
+  fi
+  db_set "key" "value1"
+  db_sync
+  db_truncate 1
+  db_set "key" "value2"
+  db_sync
+  result=$(db_get "key")
+  [ "$result" = "value2" ]
+}
+
+@test "db_backup supports optional compression" {
+  if ! command -v gzip >/dev/null 2>&1; then
+    skip "gzip unavailable"
+  fi
+  db_set "a" "1"
+  db_sync
+  db_set "b" "2"
+  DB_BACKUP_COMPRESS=1 db_backup "${DB_FILE}.backup"
+  [ -f "${DB_FILE}.backup.gz" ]
+  [ -f "${DB_FILE}.backup.wal.gz" ]
+}
+
+@test "db_restore handles compressed backups" {
+  if ! command -v gzip >/dev/null 2>&1; then
+    skip "gzip unavailable"
+  fi
+  db_set "a" "1"
+  db_sync
+  db_set "b" "2"
+  DB_BACKUP_COMPRESS=1 db_backup "${DB_FILE}.backup"
+  rm -f "$DB_FILE" "$DB_FILE.wal" "$DB_FILE.lock"
+  touch "$DB_FILE" "$DB_FILE.wal"
+  db_restore "${DB_FILE}.backup"
+  result=$(db_get "a")
+  [ "$result" = "1" ]
+  result=$(db_get "b")
+  [ "$result" = "2" ]
 }
 
 @test "db_mset stores multiple values atomically" {
@@ -665,5 +743,37 @@ teardown() {
 
 @test "db_trigger rejects unknown action" {
   run db_trigger invalid
+  [ "$status" -eq 1 ]
+}
+
+@test "DB_REPLICA appends records to replica WAL" {
+  local replica="${DB_FILE}.replica"
+  DB_REPLICA="$replica" db_set "key" "value"
+  [ -f "${replica}.wal" ]
+  run grep 'key,"value"' "${replica}.wal"
+  [ "$status" -eq 0 ]
+}
+
+@test "db_replica_sync flushes replica WAL" {
+  local replica="${DB_FILE}.replica"
+  DB_REPLICA="$replica" db_set "key" "value"
+  DB_REPLICA="$replica" db_replica_sync
+  [ -s "$replica" ]
+  [ ! -s "${replica}.wal" ]
+  run grep 'key,"value"' "$replica"
+  [ "$status" -eq 0 ]
+}
+
+@test "DB_REPLICA_CMD invokes command with record on stdin" {
+  local cmd_log="${DB_FILE}.replica_cmd.log"
+  DB_REPLICA_CMD="cat >> $cmd_log" db_set "key" "value"
+  [ -f "$cmd_log" ]
+  run grep 'key,"value"' "$cmd_log"
+  [ "$status" -eq 0 ]
+}
+
+@test "db_replica_sync fails without DB_REPLICA" {
+  unset DB_REPLICA
+  run db_replica_sync
   [ "$status" -eq 1 ]
 }
