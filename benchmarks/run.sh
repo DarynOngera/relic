@@ -184,6 +184,7 @@ _bench_mset() {
 
 main() {
   mkdir -p "$(dirname "$BENCHMARK_DB")"
+  trap 'rm -f "$db" "$db.wal" "$db.lock"' EXIT
 
   if [ "$BENCHMARK_OUTPUT" = "json" ]; then
     echo '['
@@ -213,7 +214,6 @@ main() {
     echo ']'
   fi
 
-  rm -f "$db" "$db.wal" "$db.lock"
 }
 
 main "$@"

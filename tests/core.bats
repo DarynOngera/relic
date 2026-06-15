@@ -354,6 +354,20 @@ teardown() {
   [ "$status" -eq 1 ]
 }
 
+@test "db_update rejects empty new value" {
+  db_set "key" "old"
+  run db_update "key" "old" ""
+  [ "$status" -eq 1 ]
+  result=$(db_get "key")
+  [ "$result" = "old" ]
+}
+
+@test "db_get handles values containing commas" {
+  db_set "key" "a,b,c"
+  result=$(db_get "key")
+  [ "$result" = "a,b,c" ]
+}
+
 @test "db_keys filters keys by glob pattern" {
   db_mset "user:1" "a" "user:2" "b" "post:1" "c"
   result=$(db_keys "user:*")

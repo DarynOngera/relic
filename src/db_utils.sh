@@ -54,7 +54,8 @@ _db_format_record() {
 
 _db_extract_value() {
   local payload="$1"
-  echo "$payload" | sed 's/^[^,]*,"//' | sed 's/",[^,]*$//'
+  local prefix="${payload#*,\"}"
+  echo "${prefix%\",*}"
 }
 
 _db_extract_timestamp() {

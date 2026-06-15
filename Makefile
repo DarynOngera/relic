@@ -23,7 +23,7 @@ lint:
 
 clean:
 	@echo "Cleaning artifacts..."
-	rm -f db db.tmp *.tmp db.lock db.wal
+	rm -f db db.tmp *.tmp tmp.* db.lock db.wal
 	rm -f benchmarks/db.bench benchmarks/db.bench.*
 	@echo "Done."
 
@@ -36,6 +36,8 @@ benchmark:
 	fi
 
 install:
-	@echo "Installing to /usr/local/bin..."
-	install -m 755 src/*.sh /usr/local/bin/
-	@echo "Done."
+	@echo "Installing library files to /usr/local/lib/ddia..."
+	install -d /usr/local/lib/ddia
+	install -m 644 src/*.sh /usr/local/lib/ddia/
+	@echo "Done. Library installed to /usr/local/lib/ddia/."
+	@echo "Note: a /usr/local/bin wrapper is not installed yet; source /usr/local/lib/ddia/db.sh"

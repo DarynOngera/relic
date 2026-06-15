@@ -1,1 +1,6 @@
 db
+db.lock
+db.wal
+*.tmp
+tmp.*
+benchmarks/db.bench*

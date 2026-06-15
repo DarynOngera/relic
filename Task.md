@@ -22,7 +22,7 @@ A learning project to build a comprehensive, production-grade append-only key-va
 
 - [x] Atomic writes (write to temp file, mv atomically)
 - [x] File locking with `flock` for concurrent access
-- [x] `fsync` after writes for durability
+- [x] `fsync` after WAL writes for durability
 - [x] Checksum validation (SHA256 per record)
 - [x] Write-ahead log (WAL) format for crash recovery
 - [x] Validate record format on read (detect corruption)
@@ -105,7 +105,7 @@ A learning project to build a comprehensive, production-grade append-only key-va
 - **Phase 4**: Complete
 - **Phase 5**: Complete
 - **Completed**: Basic append-only log, tombstone deletion, timestamps, input validation, db_history, db_exists, db_list, db_stats, .gitignore, Makefile targets, atomic writes, file locking, fsync, SHA256 checksums, WAL, record validation, signal handling during migration, auto-migration, db_verify, modular engine split into src/db_*.sh modules, Phase 2 operations (batch, counters, conditional, search), Phase 3 maintenance (compact, vacuum, backup, restore, truncate, schema versioning), Phase 4 transactions (begin/commit/rollback, snapshot isolation, nested transactions, lock timeout, recovery), Phase 5 observability (benchmarks, logging, metrics, memory tracking, profiling)
-- **Known Issues**: None
+- **Known Issues**: WAL durability is now per-write fsync; large workloads can set `DB_NO_FSYNC=1` to trade durability for speed. No CLI wrapper yet; use `source src/db.sh`.
 
 ## Design Decisions
 

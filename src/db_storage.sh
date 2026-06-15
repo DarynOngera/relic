@@ -3,9 +3,19 @@
 
 db=${db:-}
 
+_db_fsync_wal() {
+  if [ "${DB_NO_FSYNC:-0}" = "1" ]; then
+    return 0
+  fi
+  if command -v sync >/dev/null 2>&1; then
+    sync "$db.wal" 2>/dev/null || true
+  fi
+}
+
 _db_append_wal() {
   local record="$1"
   echo "$record" >> "$db.wal"
+  _db_fsync_wal
 }
 
 _db_sync_wal() {

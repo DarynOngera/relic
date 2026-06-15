@@ -88,13 +88,13 @@ Records are stored as quoted CSV with timestamps and SHA256 checksums:
 key,"value",2026-06-12T02:56:00+00:00,abc123...
 ```
 
-Keys starting with `__` (double underscore) are reserved for internal system records (e.g. the `__cleared__` marker written by `db_clear`) and are hidden from user-facing queries.
+Keys starting with `__` (double underscore) are reserved for internal system records (e.g. `db_clear` writes a `__system__` record whose value is `__cleared__`) and are hidden from user-facing queries.
 
 ## Design
 
 - **Append-only log**: No in-place updates
 - **Tombstone deletion**: Soft deletes via `__deleted__` marker
-- **Write-Ahead Log (WAL)**: Immediate durability, flushed via `db_sync`
+- **Write-Ahead Log (WAL)**: Records are appended to the WAL and fsync'd per write; explicit `db_sync` flushes the WAL into the main database file
 - **SHA256 checksums**: Every record validated on read/write
 - **Auto-migration**: Old format (3 fields) automatically upgraded to new format (4 fields)
 - **File locking**: `flock` for concurrent read/write access
@@ -140,6 +140,7 @@ strace -c -e trace=file,desc bash benchmarks/run.sh
 | `DB_LOG_FILE` | Optional log file path |
 | `DB_LOCK_TIMEOUT` | Lock acquisition timeout in seconds (default: `10`) |
 | `DB_BATCH_SIZE` | Chunk size for `db_mset` writes (default: `100`) |
+| `DB_NO_FSYNC` | Set to `1` to disable per-write WAL fsync (default: `0`) |
 | `BENCHMARK_COUNT` | Number of operations per benchmark (default: `1000`) |
 | `BENCHMARK_OUTPUT` | `human` or `json` (default: `human`) |
 | `BENCHMARK_WORKERS` | Parallel workers for concurrent benchmarks (default: `5`) |

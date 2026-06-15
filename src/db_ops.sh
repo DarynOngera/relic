@@ -347,6 +347,10 @@ db_update() {
     return 1
   fi
   _db_validate_key "$1" || return 1
+  if [ -z "$2" ] || [ -z "$3" ]; then
+    echo "Error: expected and new value cannot be empty" >&2
+    return 1
+  fi
   if [[ "$2" == *\"* ]] || [[ "$3" == *\"* ]]; then
     echo "Error: value cannot contain quotes" >&2
     return 1
