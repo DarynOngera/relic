@@ -54,8 +54,7 @@ db_sync             # Flush WAL to main database
 | `db_ttl <key>` | Show remaining TTL seconds |
 | `db_set_enc <key> <value>` | Store an encrypted value |
 | `db_get_enc <key>` | Retrieve and decrypt a value |
-| `db_trigger set|delete|list|clear <func>` | Register/clear sourced Bash trigger callbacks |
-
+| `db_trigger set\|delete\|list\|clear <func>` | Register/clear sourced Bash trigger callbacks |
 ### Data Integrity & Maintenance
 
 | Function | Description |
