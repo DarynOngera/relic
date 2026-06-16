@@ -347,8 +347,8 @@ db_incr() {
   status=$?
   if [ "$status" -eq 0 ]; then
     _db_fire_trigger_if_user_key "set" "$1" "$result"
+    echo "$result"
   fi
-  echo "$result"
   return "$status"
 }
 
@@ -370,8 +370,8 @@ db_decr() {
   status=$?
   if [ "$status" -eq 0 ]; then
     _db_fire_trigger_if_user_key "set" "$1" "$result"
+    echo "$result"
   fi
-  echo "$result"
   return "$status"
 }
 

@@ -178,6 +178,31 @@ db_sync() {
   return 0
 }
 
+_db_verify_stream() {
+  local label="$1"
+  local line_num=0
+  local stream_errors=0
+  while IFS= read -r line; do
+    line_num=$((line_num + 1))
+    [ -z "$line" ] && continue
+
+    local record_re='^[^,]+,"[^"]*",[^,]+,[^,]+$'
+    if [[ ! "$line" =~ $record_re ]]; then
+      echo "Error: $label line $line_num: invalid format (expected 4 CSV fields)" >&2
+      stream_errors=$((stream_errors + 1))
+      continue
+    fi
+
+    local payload="${line%,*}"
+    local checksum="${line##*,}"
+    if [ "$(_db_checksum "$payload")" != "$checksum" ]; then
+      echo "Error: $label line $line_num: checksum mismatch" >&2
+      stream_errors=$((stream_errors + 1))
+    fi
+  done
+  echo "$stream_errors $line_num"
+}
+
 db_verify() {
   _db_tx_ensure_inactive || return 1
   _db_check_flock || return 1
@@ -186,52 +211,21 @@ db_verify() {
     _db_lock_shared
     local errors=0
     local total_lines=0
+    local result seg
 
-    local line_num=0
-    while IFS= read -r line; do
-      line_num=$((line_num + 1))
-      total_lines=$((total_lines + 1))
-      [ -z "$line" ] && continue
+    for seg in $(_db_segment_files); do
+      result=$(_db_cat_file "$seg" | _db_verify_stream "$seg")
+      errors=$((errors + ${result% *}))
+      total_lines=$((total_lines + ${result#* }))
+    done
 
-      local record_re='^[^,]+,"[^"]*",[^,]+,[^,]+$'
-      if [[ ! "$line" =~ $record_re ]]; then
-        echo "Error: $db line $line_num: invalid format (expected 4 CSV fields)" >&2
-        errors=$((errors + 1))
-        continue
-      fi
+    result=$(_db_cat_file "$db" | _db_verify_stream "$db")
+    errors=$((errors + ${result% *}))
+    total_lines=$((total_lines + ${result#* }))
 
-      local payload="${line%,*}"
-      local checksum="${line##*,}"
-      local computed
-      computed=$(_db_checksum "$payload")
-      if [ "$checksum" != "$computed" ]; then
-        echo "Error: $db line $line_num: checksum mismatch" >&2
-        errors=$((errors + 1))
-      fi
-    done < <(cat "$db" 2>/dev/null)
-
-    line_num=0
-    while IFS= read -r line; do
-      line_num=$((line_num + 1))
-      total_lines=$((total_lines + 1))
-      [ -z "$line" ] && continue
-
-      local record_re='^[^,]+,"[^"]*",[^,]+,[^,]+$'
-      if [[ ! "$line" =~ $record_re ]]; then
-        echo "Error: $db.wal line $line_num: invalid format (expected 4 CSV fields)" >&2
-        errors=$((errors + 1))
-        continue
-      fi
-
-      local payload="${line%,*}"
-      local checksum="${line##*,}"
-      local computed
-      computed=$(_db_checksum "$payload")
-      if [ "$checksum" != "$computed" ]; then
-        echo "Error: $db.wal line $line_num: checksum mismatch" >&2
-        errors=$((errors + 1))
-      fi
-    done < <(cat "$db.wal" 2>/dev/null)
+    result=$(_db_cat_file "$db.wal" | _db_verify_stream "$db.wal")
+    errors=$((errors + ${result% *}))
+    total_lines=$((total_lines + ${result#* }))
 
     if [ "$errors" -gt 0 ]; then
       echo "Found $errors corrupted record(s) out of $total_lines" >&2
@@ -444,7 +438,7 @@ db_compact() {
       fi
     done
 
-    for key in "${!latest[@]}"; do
+    while IFS= read -r key; do
       [ -z "$key" ] && continue
       if [ "${expired[$key]:-}" = "1" ]; then
         continue
@@ -462,9 +456,13 @@ db_compact() {
       if [ "$record_value" != "__deleted__" ]; then
         echo "$record" >> "$tmp"
       fi
-    done
+    done < <(printf '%s\n' "${!latest[@]}" | sort)
 
-    mv "$tmp" "$db"
+    if ! mv "$tmp" "$db"; then
+      echo "Error: failed to replace database during compaction" >&2
+      rm -f "$tmp"
+      return 1
+    fi
     : > "$db.wal"
   ) 200>"${db}.lock"
 

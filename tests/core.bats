@@ -245,11 +245,20 @@ teardown() {
 }
 
 @test "db_compact preserves system markers" {
-  db_set "a" "1"
-  db_clear
+  db_set "key1" "value1"
+  db_set "__schema_version__" "42"
   db_compact
-  run grep '__cleared__' "$DB_FILE"
-  [ "$status" -eq 0 ]
+  result=$(_db_get_schema_version)
+  [ "$result" = "42" ]
+}
+
+@test "db_compact produces deterministic key order" {
+  db_set "zeta" "1"
+  db_set "alpha" "2"
+  db_set "mike" "3"
+  db_compact
+  result=$(cut -d',' -f1 "$DB_FILE" | grep -v '^__' | tr '\n' ' ')
+  [ "$result" = "alpha mike zeta " ]
 }
 
 @test "db_vacuum compacts and verifies" {
@@ -340,13 +349,26 @@ teardown() {
   if ! command -v gzip >/dev/null 2>&1; then
     skip "gzip unavailable"
   fi
-  db_set "key" "value1"
+  db_set "rotated" "value"
   db_sync
   db_truncate 1
-  db_set "key" "value2"
+  result=$(db_get "rotated")
+  [ "$result" = "value" ]
+}
+
+@test "db_verify detects corruption in rotated segments" {
+  if ! command -v gzip >/dev/null 2>&1; then
+    skip "gzip unavailable"
+  fi
+  db_set "rotated" "value"
   db_sync
-  result=$(db_get "key")
-  [ "$result" = "value2" ]
+  db_truncate 1
+  # Corrupt the rotated compressed segment with a valid-format bad-checksum record
+  local seg="$DB_FILE.1.gz"
+  [ -f "$seg" ]
+  echo 'rotated_bad,"value",2026-06-16T00:00:00+00:00,invalidchecksum' | gzip > "$seg"
+  run db_verify
+  [ "$status" -eq 1 ]
 }
 
 @test "db_backup supports optional compression" {
@@ -411,6 +433,12 @@ teardown() {
   [ "$result" -eq 6 ]
 }
 
+@test "db_incr prints value exactly once" {
+  db_set "counter" "5"
+  result=$(db_incr "counter" | wc -l)
+  [ "$result" -eq 1 ]
+}
+
 @test "db_incr fails when key does not exist" {
   run db_incr "missing_counter"
   [ "$status" -eq 1 ]
@@ -426,6 +454,12 @@ teardown() {
   db_set "counter" "5"
   result=$(db_decr "counter")
   [ "$result" -eq 4 ]
+}
+
+@test "db_decr prints value exactly once" {
+  db_set "counter" "5"
+  result=$(db_decr "counter" | wc -l)
+  [ "$result" -eq 1 ]
 }
 
 @test "db_update changes value only when expected matches" {
@@ -795,6 +829,17 @@ teardown() {
 @test "db_trigger rejects unknown action" {
   run db_trigger invalid
   [ "$status" -eq 1 ]
+}
+
+@test "db_trigger list has no blank lines with only one trigger type" {
+  _single_trigger() { true; }
+  export -f _single_trigger
+  db_trigger set _single_trigger
+  result=$(db_trigger list | wc -l)
+  [ "$result" -eq 1 ]
+  result=$(db_trigger list | grep -c '^$' || true)
+  [ "$result" -eq 0 ]
+  db_trigger clear
 }
 
 @test "db_trigger calling db_get does not deadlock" {

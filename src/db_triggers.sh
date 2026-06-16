@@ -72,7 +72,10 @@ db_trigger() {
       fi
       ;;
     list)
-      printf '%s\n' "${_DB_TRIGGERS_SET[@]}" "${_DB_TRIGGERS_DELETE[@]}"
+      local func
+      for func in "${_DB_TRIGGERS_SET[@]}" "${_DB_TRIGGERS_DELETE[@]}"; do
+        [ -n "$func" ] && printf '%s\n' "$func"
+      done
       ;;
     clear)
       _DB_TRIGGERS_SET=()
